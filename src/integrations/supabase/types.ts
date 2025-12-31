@@ -14,7 +14,295 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alerts: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          read: boolean
+          related_id: string | null
+          severity: string
+          timestamp: string
+          title: string
+          type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          read?: boolean
+          related_id?: string | null
+          severity: string
+          timestamp?: string
+          title: string
+          type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          read?: boolean
+          related_id?: string | null
+          severity?: string
+          timestamp?: string
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      drivers: {
+        Row: {
+          avatar: string | null
+          created_at: string
+          current_vehicle: string | null
+          id: string
+          journey_start: string | null
+          license: string
+          name: string
+          phone: string
+          status: string
+          total_hours_today: number | null
+          updated_at: string
+        }
+        Insert: {
+          avatar?: string | null
+          created_at?: string
+          current_vehicle?: string | null
+          id?: string
+          journey_start?: string | null
+          license: string
+          name: string
+          phone: string
+          status?: string
+          total_hours_today?: number | null
+          updated_at?: string
+        }
+        Update: {
+          avatar?: string | null
+          created_at?: string
+          current_vehicle?: string | null
+          id?: string
+          journey_start?: string | null
+          license?: string
+          name?: string
+          phone?: string
+          status?: string
+          total_hours_today?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      journey_entries: {
+        Row: {
+          created_at: string
+          driver_id: string
+          driver_name: string
+          id: string
+          location: string | null
+          mileage: number | null
+          timestamp: string
+          type: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          id?: string
+          location?: string | null
+          mileage?: number | null
+          timestamp?: string
+          type: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          location?: string | null
+          mileage?: number | null
+          timestamp?: string
+          type?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "journey_entries_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "journey_entries_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenances: {
+        Row: {
+          category: string
+          completed_date: string | null
+          cost: number | null
+          created_at: string
+          description: string
+          id: string
+          notes: string | null
+          scheduled_date: string
+          status: string
+          type: string
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          category: string
+          completed_date?: string | null
+          cost?: number | null
+          created_at?: string
+          description: string
+          id?: string
+          notes?: string | null
+          scheduled_date: string
+          status?: string
+          type: string
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          category?: string
+          completed_date?: string | null
+          cost?: number | null
+          created_at?: string
+          description?: string
+          id?: string
+          notes?: string | null
+          scheduled_date?: string
+          status?: string
+          type?: string
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenances_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tires: {
+        Row: {
+          brand: string
+          created_at: string
+          current_mileage: number
+          id: string
+          install_date: string
+          install_mileage: number
+          last_inspection: string
+          max_mileage: number
+          model: string
+          position: string
+          status: string
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          brand: string
+          created_at?: string
+          current_mileage: number
+          id?: string
+          install_date: string
+          install_mileage: number
+          last_inspection?: string
+          max_mileage: number
+          model: string
+          position: string
+          status?: string
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          brand?: string
+          created_at?: string
+          current_mileage?: number
+          id?: string
+          install_date?: string
+          install_mileage?: number
+          last_inspection?: string
+          max_mileage?: number
+          model?: string
+          position?: string
+          status?: string
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tires_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vehicles: {
+        Row: {
+          brand: string
+          created_at: string
+          fuel_type: string
+          id: string
+          mileage: number
+          model: string
+          next_maintenance: string
+          plate: string
+          status: string
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          brand: string
+          created_at?: string
+          fuel_type?: string
+          id?: string
+          mileage?: number
+          model: string
+          next_maintenance: string
+          plate: string
+          status?: string
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          brand?: string
+          created_at?: string
+          fuel_type?: string
+          id?: string
+          mileage?: number
+          model?: string
+          next_maintenance?: string
+          plate?: string
+          status?: string
+          updated_at?: string
+          year?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
