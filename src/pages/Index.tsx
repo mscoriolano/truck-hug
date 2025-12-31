@@ -1,18 +1,60 @@
 import { MainLayout } from '@/components/layout/MainLayout';
 import { StatCard } from '@/components/dashboard/StatCard';
-import { DriverStatusCard } from '@/components/dashboard/DriverStatusCard';
-import { MaintenanceCard } from '@/components/dashboard/MaintenanceCard';
-import { TireStatusCard } from '@/components/dashboard/TireStatusCard';
-import { AlertCard } from '@/components/dashboard/AlertCard';
-import { mockDrivers, mockVehicles, mockMaintenances, mockTires, mockAlerts } from '@/data/mockData';
-import { Users, Truck, Wrench, CircleDot, AlertTriangle, Clock } from 'lucide-react';
+import { useDrivers } from '@/hooks/useDrivers';
+import { useVehicles } from '@/hooks/useVehicles';
+import { useMaintenances } from '@/hooks/useMaintenances';
+import { useTires } from '@/hooks/useTires';
+import { useAlerts } from '@/hooks/useAlerts';
+import { Users, Truck, Wrench, CircleDot, AlertTriangle, Clock, Loader2, User, Calendar } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 const Index = () => {
-  const activeDrivers = mockDrivers.filter(d => d.status === 'driving').length;
-  const vehiclesInMaintenance = mockVehicles.filter(v => v.status === 'maintenance').length;
-  const overdueMaintenances = mockMaintenances.filter(m => m.status === 'overdue').length;
-  const criticalTires = mockTires.filter(t => t.status === 'critical').length;
-  const unreadAlerts = mockAlerts.filter(a => !a.read);
+  const { data: drivers, isLoading: driversLoading } = useDrivers();
+  const { data: vehicles, isLoading: vehiclesLoading } = useVehicles();
+  const { data: maintenances, isLoading: maintenancesLoading } = useMaintenances();
+  const { data: tires, isLoading: tiresLoading } = useTires();
+  const { data: alerts, isLoading: alertsLoading } = useAlerts();
+
+  const isLoading = driversLoading || vehiclesLoading || maintenancesLoading || tiresLoading || alertsLoading;
+
+  if (isLoading) {
+    return (
+      <MainLayout title="Dashboard" subtitle="Visão geral da sua frota">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
+
+  const activeDrivers = drivers?.filter(d => d.status === 'driving').length || 0;
+  const vehiclesInMaintenance = vehicles?.filter(v => v.status === 'maintenance').length || 0;
+  const overdueMaintenances = maintenances?.filter(m => m.status === 'overdue').length || 0;
+  const criticalTires = tires?.filter(t => t.status === 'critical').length || 0;
+  const unreadAlerts = alerts?.filter(a => !a.read) || [];
+
+  const statusConfig = {
+    available: { label: 'Disponível', color: 'bg-success text-success-foreground' },
+    driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
+    resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
+    off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
+  };
+
+  const maintenanceStatusConfig = {
+    scheduled: { label: 'Agendada', color: 'bg-info text-info-foreground' },
+    in_progress: { label: 'Em andamento', color: 'bg-warning text-warning-foreground' },
+    completed: { label: 'Concluída', color: 'bg-success text-success-foreground' },
+    overdue: { label: 'Atrasada', color: 'bg-destructive text-destructive-foreground' },
+  };
+
+  const alertSeverityConfig = {
+    info: { color: 'bg-info/20 border-info/30', icon: 'text-info' },
+    warning: { color: 'bg-warning/20 border-warning/30', icon: 'text-warning' },
+    critical: { color: 'bg-destructive/20 border-destructive/30', icon: 'text-destructive' },
+  };
 
   return (
     <MainLayout 
@@ -25,20 +67,20 @@ const Index = () => {
           <StatCard
             title="Motoristas Ativos"
             value={activeDrivers}
-            subtitle={`de ${mockDrivers.length} motoristas`}
+            subtitle={`de ${drivers?.length || 0} motoristas`}
             icon={Users}
             variant="primary"
           />
           <StatCard
             title="Veículos em Operação"
-            value={mockVehicles.filter(v => v.status === 'active').length}
+            value={vehicles?.filter(v => v.status === 'active').length || 0}
             subtitle={`${vehiclesInMaintenance} em manutenção`}
             icon={Truck}
             variant="success"
           />
           <StatCard
             title="Manutenções Pendentes"
-            value={mockMaintenances.filter(m => m.status !== 'completed').length}
+            value={maintenances?.filter(m => m.status !== 'completed').length || 0}
             subtitle={overdueMaintenances > 0 ? `${overdueMaintenances} atrasadas` : 'Tudo em dia'}
             icon={Wrench}
             variant={overdueMaintenances > 0 ? 'warning' : 'default'}
@@ -54,7 +96,7 @@ const Index = () => {
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Drivers & Alerts */}
+          {/* Left Column - Drivers & Maintenances */}
           <div className="lg:col-span-2 space-y-6">
             {/* Drivers Section */}
             <section>
@@ -67,11 +109,60 @@ const Index = () => {
                   Ver todos
                 </a>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {mockDrivers.slice(0, 4).map((driver) => (
-                  <DriverStatusCard key={driver.id} driver={driver} />
-                ))}
-              </div>
+              {drivers && drivers.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {drivers.slice(0, 4).map((driver) => {
+                    const status = statusConfig[driver.status];
+                    const progressPercent = ((driver.total_hours_today || 0) / 8) * 100;
+                    
+                    return (
+                      <div key={driver.id} className="rounded-xl bg-card border border-border p-4">
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="relative">
+                            <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
+                              <User className="w-5 h-5 text-primary-foreground" />
+                            </div>
+                            <div className={cn(
+                              "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-card",
+                              driver.status === 'driving' && "bg-primary",
+                              driver.status === 'available' && "bg-success",
+                              driver.status === 'resting' && "bg-warning",
+                              driver.status === 'off' && "bg-muted",
+                            )} />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-medium text-foreground">{driver.name}</p>
+                            <Badge className={cn("text-xs", status.color)}>
+                              {status.label}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Jornada</span>
+                            <span>{Math.floor(driver.total_hours_today || 0)}h / 8h</span>
+                          </div>
+                          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                            <div 
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                progressPercent >= 90 ? "bg-destructive" :
+                                progressPercent >= 70 ? "bg-warning" : "bg-primary"
+                              )}
+                              style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                  <User className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Nenhum motorista cadastrado</p>
+                </div>
+              )}
             </section>
 
             {/* Maintenances Section */}
@@ -85,11 +176,36 @@ const Index = () => {
                   Ver todas
                 </a>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {mockMaintenances.slice(0, 4).map((maintenance) => (
-                  <MaintenanceCard key={maintenance.id} maintenance={maintenance} />
-                ))}
-              </div>
+              {maintenances && maintenances.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {maintenances.slice(0, 4).map((maintenance) => {
+                    const status = maintenanceStatusConfig[maintenance.status];
+                    
+                    return (
+                      <div key={maintenance.id} className="rounded-xl bg-card border border-border p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="font-medium text-foreground">{maintenance.vehicle_plate}</p>
+                            <p className="text-sm text-muted-foreground">{maintenance.description}</p>
+                          </div>
+                          <Badge className={cn("text-xs", status.color)}>
+                            {status.label}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Calendar className="w-3 h-3" />
+                          {format(new Date(maintenance.scheduled_date), "dd/MM/yyyy", { locale: ptBR })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                  <Wrench className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Nenhuma manutenção cadastrada</p>
+                </div>
+              )}
             </section>
           </div>
 
@@ -111,11 +227,30 @@ const Index = () => {
                   Ver todos
                 </a>
               </div>
-              <div className="space-y-3">
-                {mockAlerts.slice(0, 3).map((alert) => (
-                  <AlertCard key={alert.id} alert={alert} />
-                ))}
-              </div>
+              {alerts && alerts.length > 0 ? (
+                <div className="space-y-3">
+                  {alerts.slice(0, 3).map((alert) => {
+                    const severity = alertSeverityConfig[alert.severity];
+                    
+                    return (
+                      <div key={alert.id} className={cn("rounded-xl border p-4", severity.color)}>
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className={cn("w-5 h-5 mt-0.5", severity.icon)} />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-foreground text-sm">{alert.title}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{alert.message}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                  <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Nenhum alerta</p>
+                </div>
+              )}
             </section>
 
             {/* Tires Section */}
@@ -129,11 +264,45 @@ const Index = () => {
                   Ver todos
                 </a>
               </div>
-              <div className="space-y-3">
-                {mockTires.filter(t => t.status !== 'good').slice(0, 3).map((tire) => (
-                  <TireStatusCard key={tire.id} tire={tire} />
-                ))}
-              </div>
+              {tires && tires.filter(t => t.status !== 'good').length > 0 ? (
+                <div className="space-y-3">
+                  {tires.filter(t => t.status !== 'good').slice(0, 3).map((tire) => {
+                    const usedMileage = tire.current_mileage - tire.install_mileage;
+                    const wearPercent = (usedMileage / tire.max_mileage) * 100;
+                    
+                    return (
+                      <div key={tire.id} className="rounded-xl bg-card border border-border p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="font-medium text-foreground">{tire.vehicle_plate}</p>
+                            <p className="text-xs text-muted-foreground">{tire.position} - {tire.brand}</p>
+                          </div>
+                          <Badge className={cn(
+                            "text-xs",
+                            tire.status === 'critical' ? "bg-destructive text-destructive-foreground" : "bg-warning text-warning-foreground"
+                          )}>
+                            {tire.status === 'critical' ? 'Crítico' : 'Atenção'}
+                          </Badge>
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className={cn(
+                              "h-full rounded-full",
+                              wearPercent >= 90 ? "bg-destructive" : "bg-warning"
+                            )}
+                            style={{ width: `${Math.min(wearPercent, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                  <CircleDot className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground">Nenhum pneu crítico</p>
+                </div>
+              )}
             </section>
           </div>
         </div>
