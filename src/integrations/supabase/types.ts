@@ -50,6 +50,72 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_scores: {
+        Row: {
+          avg_consumption: number | null
+          corrective_maintenances: number | null
+          created_at: string
+          driver_id: string
+          driver_name: string
+          fuel_efficiency_score: number | null
+          id: string
+          journey_compliance_score: number | null
+          journey_violations: number | null
+          maintenance_score: number | null
+          period_end: string
+          period_start: string
+          speed_compliance_score: number | null
+          speed_violations: number | null
+          tire_care_score: number | null
+          tire_incidents: number | null
+          total_km: number | null
+          total_score: number | null
+          updated_at: string
+        }
+        Insert: {
+          avg_consumption?: number | null
+          corrective_maintenances?: number | null
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          fuel_efficiency_score?: number | null
+          id?: string
+          journey_compliance_score?: number | null
+          journey_violations?: number | null
+          maintenance_score?: number | null
+          period_end: string
+          period_start: string
+          speed_compliance_score?: number | null
+          speed_violations?: number | null
+          tire_care_score?: number | null
+          tire_incidents?: number | null
+          total_km?: number | null
+          total_score?: number | null
+          updated_at?: string
+        }
+        Update: {
+          avg_consumption?: number | null
+          corrective_maintenances?: number | null
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          fuel_efficiency_score?: number | null
+          id?: string
+          journey_compliance_score?: number | null
+          journey_violations?: number | null
+          maintenance_score?: number | null
+          period_end?: string
+          period_start?: string
+          speed_compliance_score?: number | null
+          speed_violations?: number | null
+          tire_care_score?: number | null
+          tire_incidents?: number | null
+          total_km?: number | null
+          total_score?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       drivers: {
         Row: {
           avatar: string | null
@@ -89,6 +155,60 @@ export type Database = {
           status?: string
           total_hours_today?: number | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      fuel_entries: {
+        Row: {
+          created_at: string
+          driver_id: string
+          driver_name: string
+          entry_date: string
+          fuel_type: string
+          id: string
+          liters: number
+          mileage: number
+          notes: string | null
+          price_per_liter: number
+          station: string | null
+          total_cost: number
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          entry_date?: string
+          fuel_type?: string
+          id?: string
+          liters: number
+          mileage: number
+          notes?: string | null
+          price_per_liter: number
+          station?: string | null
+          total_cost: number
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          entry_date?: string
+          fuel_type?: string
+          id?: string
+          liters?: number
+          mileage?: number
+          notes?: string | null
+          price_per_liter?: number
+          station?: string | null
+          total_cost?: number
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
         }
         Relationships: []
       }
@@ -201,6 +321,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       tires: {
         Row: {
