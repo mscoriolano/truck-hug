@@ -12,6 +12,7 @@ export interface Vehicle {
   status: 'active' | 'maintenance' | 'inactive';
   next_maintenance: string;
   fuel_type: 'diesel' | 'gasoline' | 'flex' | 'electric';
+  consumption_target?: number;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +26,7 @@ export interface CreateVehicleInput {
   status?: 'active' | 'maintenance' | 'inactive';
   next_maintenance: string;
   fuel_type?: 'diesel' | 'gasoline' | 'flex' | 'electric';
+  consumption_target?: number;
 }
 
 export const useVehicles = () => {

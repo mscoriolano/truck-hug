@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useVehicles, useDeleteVehicle } from '@/hooks/useVehicles';
+import { useVehicles, useDeleteVehicle, Vehicle } from '@/hooks/useVehicles';
 import { VehicleForm } from '@/components/forms/VehicleForm';
+import { VehicleEditForm } from '@/components/forms/VehicleEditForm';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Truck, Fuel, Calendar, Gauge, MoreVertical, Trash2, Loader2 } from 'lucide-react';
+import { Truck, Fuel, Calendar, Gauge, MoreVertical, Trash2, Loader2, Edit, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -30,6 +32,13 @@ const fuelConfig = {
 const Veiculos = () => {
   const { data: vehicles, isLoading } = useVehicles();
   const deleteVehicle = useDeleteVehicle();
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const handleEdit = (vehicle: Vehicle) => {
+    setEditingVehicle(vehicle);
+    setEditOpen(true);
+  };
 
   if (isLoading) {
     return (
@@ -111,6 +120,10 @@ const Veiculos = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleEdit(vehicle)}>
+                            <Edit className="w-4 h-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
                           <DropdownMenuItem 
                             className="text-destructive"
                             onClick={() => deleteVehicle.mutate(vehicle.id)}
@@ -151,6 +164,15 @@ const Veiculos = () => {
                         {fuelConfig[vehicle.fuel_type]}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Target className="w-4 h-4" />
+                        <span>Meta Consumo</span>
+                      </div>
+                      <span className="text-foreground font-medium">
+                        {vehicle.consumption_target || 2.5} km/L
+                      </span>
+                    </div>
                   </div>
 
                   <div className={cn(
@@ -179,6 +201,12 @@ const Veiculos = () => {
             <VehicleForm />
           </div>
         )}
+
+        <VehicleEditForm 
+          vehicle={editingVehicle} 
+          open={editOpen} 
+          onOpenChange={setEditOpen} 
+        />
       </div>
     </MainLayout>
   );

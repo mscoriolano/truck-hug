@@ -2,16 +2,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+export type DriverStatus = 'available' | 'driving' | 'resting' | 'off' | 'vacation' | 'leave' | 'terminated';
+
 export interface Driver {
   id: string;
   name: string;
   avatar?: string;
   phone: string;
   license: string;
-  status: 'available' | 'driving' | 'resting' | 'off';
+  status: DriverStatus;
   current_vehicle?: string;
   journey_start?: string;
   total_hours_today: number;
+  cnh_expiry?: string | null;
+  cnh_category?: string | null;
+  r3?: string | null;
+  ac?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -20,8 +26,12 @@ export interface CreateDriverInput {
   name: string;
   phone: string;
   license: string;
-  status?: 'available' | 'driving' | 'resting' | 'off';
+  status?: DriverStatus;
   avatar?: string;
+  cnh_expiry?: string | null;
+  cnh_category?: string | null;
+  r3?: string | null;
+  ac?: string | null;
 }
 
 export const useDrivers = () => {
