@@ -118,7 +118,10 @@ export type Database = {
       }
       drivers: {
         Row: {
+          ac: string | null
           avatar: string | null
+          cnh_category: string | null
+          cnh_expiry: string | null
           created_at: string
           current_vehicle: string | null
           id: string
@@ -126,12 +129,16 @@ export type Database = {
           license: string
           name: string
           phone: string
+          r3: string | null
           status: string
           total_hours_today: number | null
           updated_at: string
         }
         Insert: {
+          ac?: string | null
           avatar?: string | null
+          cnh_category?: string | null
+          cnh_expiry?: string | null
           created_at?: string
           current_vehicle?: string | null
           id?: string
@@ -139,12 +146,16 @@ export type Database = {
           license: string
           name: string
           phone: string
+          r3?: string | null
           status?: string
           total_hours_today?: number | null
           updated_at?: string
         }
         Update: {
+          ac?: string | null
           avatar?: string | null
+          cnh_category?: string | null
+          cnh_expiry?: string | null
           created_at?: string
           current_vehicle?: string | null
           id?: string
@@ -152,6 +163,7 @@ export type Database = {
           license?: string
           name?: string
           phone?: string
+          r3?: string | null
           status?: string
           total_hours_today?: number | null
           updated_at?: string
@@ -411,9 +423,91 @@ export type Database = {
           },
         ]
       }
+      trips: {
+        Row: {
+          created_at: string
+          cycle_value: number
+          departure_date: string
+          driver_id: string
+          driver_name: string
+          id: string
+          notes: string | null
+          trip_type: string
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          cycle_value?: number
+          departure_date: string
+          driver_id: string
+          driver_name: string
+          id?: string
+          notes?: string | null
+          trip_type: string
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          cycle_value?: number
+          departure_date?: string
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          notes?: string | null
+          trip_type?: string
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trips_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       vehicles: {
         Row: {
           brand: string
+          consumption_target: number | null
           created_at: string
           fuel_type: string
           id: string
@@ -427,6 +521,7 @@ export type Database = {
         }
         Insert: {
           brand: string
+          consumption_target?: number | null
           created_at?: string
           fuel_type?: string
           id?: string
@@ -440,6 +535,7 @@ export type Database = {
         }
         Update: {
           brand?: string
+          consumption_target?: number | null
           created_at?: string
           fuel_type?: string
           id?: string
@@ -458,10 +554,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "manager" | "viewer" | "driver"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -588,6 +684,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "manager", "viewer", "driver"],
+    },
   },
 } as const

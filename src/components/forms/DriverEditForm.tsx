@@ -1,14 +1,20 @@
-import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus } from 'lucide-react';
-import { useCreateDriver, DriverStatus } from '@/hooks/useDrivers';
+import { useUpdateDriver, Driver } from '@/hooks/useDrivers';
 
-export const DriverForm = () => {
-  const [open, setOpen] = useState(false);
+interface DriverEditFormProps {
+  driver: Driver | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+type DriverStatus = 'available' | 'driving' | 'resting' | 'off' | 'vacation' | 'leave' | 'terminated';
+
+export const DriverEditForm = ({ driver, open, onOpenChange }: DriverEditFormProps) => {
   const [formData, setFormData] = useState<{
     name: string;
     phone: string;
@@ -29,47 +35,46 @@ export const DriverForm = () => {
     ac: '',
   });
   
-  const createDriver = useCreateDriver();
+  const updateDriver = useUpdateDriver();
+
+  useEffect(() => {
+    if (driver) {
+      setFormData({
+        name: driver.name || '',
+        phone: driver.phone || '',
+        license: driver.license || '',
+        status: (driver.status as DriverStatus) || 'available',
+        cnh_expiry: driver.cnh_expiry || '',
+        cnh_category: driver.cnh_category || '',
+        r3: driver.r3 || '',
+        ac: driver.ac || '',
+      });
+    }
+  }, [driver]);
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await createDriver.mutateAsync({
+    if (!driver) return;
+    
+    await updateDriver.mutateAsync({ 
+      id: driver.id, 
       ...formData,
       cnh_expiry: formData.cnh_expiry || null,
-      cnh_category: formData.cnh_category || null,
-      r3: formData.r3 || null,
-      ac: formData.ac || null,
     });
-    setFormData({ 
-      name: '', 
-      phone: '', 
-      license: '', 
-      status: 'available',
-      cnh_expiry: '',
-      cnh_category: '',
-      r3: '',
-      ac: '',
-    });
-    setOpen(false);
+    onOpenChange(false);
   };
   
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <Plus className="w-4 h-4" />
-          Novo Motorista
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Cadastrar Motorista</DialogTitle>
+          <DialogTitle>Editar Motorista</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Nome Completo</Label>
+            <Label htmlFor="edit-name">Nome Completo</Label>
             <Input
-              id="name"
+              id="edit-name"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="João da Silva"
@@ -78,9 +83,9 @@ export const DriverForm = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="phone">Telefone</Label>
+              <Label htmlFor="edit-phone">Telefone</Label>
               <Input
-                id="phone"
+                id="edit-phone"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 placeholder="(11) 99999-9999"
@@ -88,9 +93,9 @@ export const DriverForm = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="license">Número CNH</Label>
+              <Label htmlFor="edit-license">Número CNH</Label>
               <Input
-                id="license"
+                id="edit-license"
                 value={formData.license}
                 onChange={(e) => setFormData({ ...formData, license: e.target.value })}
                 placeholder="12345678900"
@@ -100,16 +105,16 @@ export const DriverForm = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="cnh_expiry">Vencimento CNH</Label>
+              <Label htmlFor="edit-cnh_expiry">Vencimento CNH</Label>
               <Input
-                id="cnh_expiry"
+                id="edit-cnh_expiry"
                 type="date"
                 value={formData.cnh_expiry}
                 onChange={(e) => setFormData({ ...formData, cnh_expiry: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cnh_category">Categoria CNH</Label>
+              <Label htmlFor="edit-cnh_category">Categoria CNH</Label>
               <Select
                 value={formData.cnh_category}
                 onValueChange={(value) => setFormData({ ...formData, cnh_category: value })}
@@ -133,18 +138,18 @@ export const DriverForm = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="r3">R3</Label>
+              <Label htmlFor="edit-r3">R3</Label>
               <Input
-                id="r3"
+                id="edit-r3"
                 value={formData.r3}
                 onChange={(e) => setFormData({ ...formData, r3: e.target.value })}
                 placeholder="Código R3"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ac">AC</Label>
+              <Label htmlFor="edit-ac">AC</Label>
               <Input
-                id="ac"
+                id="edit-ac"
                 value={formData.ac}
                 onChange={(e) => setFormData({ ...formData, ac: e.target.value })}
                 placeholder="Código AC"
@@ -152,12 +157,10 @@ export const DriverForm = () => {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
+            <Label htmlFor="edit-status">Status</Label>
             <Select
               value={formData.status}
-              onValueChange={(value: DriverStatus) => 
-                setFormData({ ...formData, status: value })
-              }
+              onValueChange={(value: DriverStatus) => setFormData({ ...formData, status: value })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o status" />
@@ -173,8 +176,8 @@ export const DriverForm = () => {
               </SelectContent>
             </Select>
           </div>
-          <Button type="submit" className="w-full" disabled={createDriver.isPending}>
-            {createDriver.isPending ? 'Salvando...' : 'Cadastrar'}
+          <Button type="submit" className="w-full" disabled={updateDriver.isPending}>
+            {updateDriver.isPending ? 'Salvando...' : 'Salvar Alterações'}
           </Button>
         </form>
       </DialogContent>

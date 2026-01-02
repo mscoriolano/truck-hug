@@ -1,10 +1,14 @@
+import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useDrivers, useDeleteDriver } from '@/hooks/useDrivers';
+import { useDrivers, useDeleteDriver, Driver } from '@/hooks/useDrivers';
 import { DriverForm } from '@/components/forms/DriverForm';
+import { DriverEditForm } from '@/components/forms/DriverEditForm';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { User, Phone, CreditCard, Truck, MoreVertical, Trash2, Loader2 } from 'lucide-react';
+import { User, Phone, CreditCard, Truck, MoreVertical, Trash2, Loader2, Edit, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,16 +16,26 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; color: string }> = {
   available: { label: 'Disponível', color: 'bg-success text-success-foreground' },
   driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
   resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
   off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
+  vacation: { label: 'Férias', color: 'bg-info text-info-foreground' },
+  leave: { label: 'Licença', color: 'bg-secondary text-secondary-foreground' },
+  terminated: { label: 'Desligado', color: 'bg-destructive text-destructive-foreground' },
 };
 
 const Motoristas = () => {
   const { data: drivers, isLoading } = useDrivers();
   const deleteDriver = useDeleteDriver();
+  const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const handleEdit = (driver: Driver) => {
+    setEditingDriver(driver);
+    setEditOpen(true);
+  };
 
   if (isLoading) {
     return (
@@ -55,7 +69,8 @@ const Motoristas = () => {
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Motorista</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contato</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">CNH</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Veículo Atual</th>
+                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Venc. CNH</th>
+                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">R3/AC</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
                   <th className="text-left p-4 text-sm font-medium text-muted-foreground">Jornada Hoje</th>
                   <th className="p-4"></th>
@@ -63,8 +78,11 @@ const Motoristas = () => {
               </thead>
               <tbody>
                 {drivers.map((driver) => {
-                  const status = statusConfig[driver.status];
+                  const status = statusConfig[driver.status] || statusConfig.available;
                   const progressPercent = ((driver.total_hours_today || 0) / 8) * 100;
+                  const cnhExpiry = driver.cnh_expiry ? new Date(driver.cnh_expiry) : null;
+                  const isCnhExpiring = cnhExpiry && cnhExpiry < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                  const isCnhExpired = cnhExpiry && cnhExpiry < new Date();
                   
                   return (
                     <tr 
@@ -83,6 +101,9 @@ const Motoristas = () => {
                               driver.status === 'available' && "bg-success",
                               driver.status === 'resting' && "bg-warning",
                               driver.status === 'off' && "bg-muted",
+                              driver.status === 'vacation' && "bg-info",
+                              driver.status === 'leave' && "bg-secondary",
+                              driver.status === 'terminated' && "bg-destructive",
                             )} />
                           </div>
                           <span className="font-medium text-foreground">{driver.name}</span>
@@ -95,20 +116,35 @@ const Motoristas = () => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <CreditCard className="w-3.5 h-3.5" />
-                          <span>{driver.license}</span>
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1 text-sm text-foreground">
+                            <CreditCard className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span>{driver.license}</span>
+                          </div>
+                          {driver.cnh_category && (
+                            <span className="text-xs text-muted-foreground">Cat. {driver.cnh_category}</span>
+                          )}
                         </div>
                       </td>
                       <td className="p-4">
-                        {driver.current_vehicle ? (
-                          <div className="flex items-center gap-1 text-sm text-foreground">
-                            <Truck className="w-3.5 h-3.5 text-primary" />
-                            <span>{driver.current_vehicle}</span>
+                        {cnhExpiry ? (
+                          <div className={cn(
+                            "flex items-center gap-1 text-sm",
+                            isCnhExpired ? "text-destructive" : isCnhExpiring ? "text-warning" : "text-muted-foreground"
+                          )}>
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>{format(cnhExpiry, "dd/MM/yyyy", { locale: ptBR })}</span>
                           </div>
                         ) : (
                           <span className="text-sm text-muted-foreground">-</span>
                         )}
+                      </td>
+                      <td className="p-4">
+                        <div className="text-sm text-muted-foreground">
+                          {driver.r3 || driver.ac ? (
+                            <span>{driver.r3 && `R3: ${driver.r3}`} {driver.ac && `AC: ${driver.ac}`}</span>
+                          ) : '-'}
+                        </div>
                       </td>
                       <td className="p-4">
                         <Badge className={cn("text-xs", status.color)}>
@@ -143,6 +179,10 @@ const Motoristas = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(driver)}>
+                              <Edit className="w-4 h-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
                             <DropdownMenuItem 
                               className="text-destructive"
                               onClick={() => deleteDriver.mutate(driver.id)}
@@ -166,6 +206,12 @@ const Motoristas = () => {
             <DriverForm />
           </div>
         )}
+
+        <DriverEditForm 
+          driver={editingDriver} 
+          open={editOpen} 
+          onOpenChange={setEditOpen} 
+        />
       </div>
     </MainLayout>
   );
