@@ -40,6 +40,9 @@ export const FuelEntryForm = () => {
     
     if (!selectedVehicle || !selectedDriver) return;
     
+    // Construir data com horário ao meio-dia para evitar problemas de fuso horário
+    const entryDateWithTime = `${formData.entry_date}T12:00:00`;
+    
     await createFuelEntry.mutateAsync({
       vehicle_id: formData.vehicle_id,
       vehicle_plate: selectedVehicle.plate,
@@ -52,7 +55,7 @@ export const FuelEntryForm = () => {
       fuel_type: formData.fuel_type,
       station: formData.station || undefined,
       notes: formData.notes || undefined,
-      entry_date: formData.entry_date,
+      entry_date: entryDateWithTime,
     });
     
     setFormData({
