@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Fuel,
   Trophy,
-  LogOut
+  LogOut,
+  RotateCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ const navItems = [
   { icon: Wrench, label: 'Manutenções', path: '/manutencoes' },
   { icon: CircleDot, label: 'Pneus', path: '/pneus' },
   { icon: Fuel, label: 'Abastecimentos', path: '/abastecimentos' },
+  { icon: RotateCcw, label: 'Viagens', path: '/viagens' },
   { icon: Trophy, label: 'Gamificação', path: '/gamificacao' },
 ];
 

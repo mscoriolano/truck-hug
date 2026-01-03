@@ -1,24 +1,52 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { StatCard } from '@/components/dashboard/StatCard';
+import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useVehicles } from '@/hooks/useVehicles';
 import { useMaintenances } from '@/hooks/useMaintenances';
 import { useTires } from '@/hooks/useTires';
 import { useAlerts } from '@/hooks/useAlerts';
-import { Users, Truck, Wrench, CircleDot, AlertTriangle, Clock, Loader2, User, Calendar } from 'lucide-react';
+import { useFuelEntries } from '@/hooks/useFuelEntries';
+import { useTrips } from '@/hooks/useTrips';
+import { 
+  Users, 
+  Truck, 
+  Wrench, 
+  CircleDot, 
+  AlertTriangle, 
+  Clock, 
+  Loader2, 
+  User, 
+  Calendar,
+  DollarSign,
+  RotateCcw
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
 const Index = () => {
+  const navigate = useNavigate();
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
+
   const { data: drivers, isLoading: driversLoading } = useDrivers();
   const { data: vehicles, isLoading: vehiclesLoading } = useVehicles();
   const { data: maintenances, isLoading: maintenancesLoading } = useMaintenances();
   const { data: tires, isLoading: tiresLoading } = useTires();
   const { data: alerts, isLoading: alertsLoading } = useAlerts();
+  const { data: fuelEntries, isLoading: fuelLoading } = useFuelEntries(startDate, endDate);
+  const { data: trips, isLoading: tripsLoading } = useTrips(startDate, endDate);
 
-  const isLoading = driversLoading || vehiclesLoading || maintenancesLoading || tiresLoading || alertsLoading;
+  const handleDateChange = (start?: Date, end?: Date) => {
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const isLoading = driversLoading || vehiclesLoading || maintenancesLoading || tiresLoading || alertsLoading || fuelLoading || tripsLoading;
 
   if (isLoading) {
     return (
@@ -35,22 +63,31 @@ const Index = () => {
   const overdueMaintenances = maintenances?.filter(m => m.status === 'overdue').length || 0;
   const criticalTires = tires?.filter(t => t.status === 'critical').length || 0;
   const unreadAlerts = alerts?.filter(a => !a.read) || [];
+  
+  // Fuel stats
+  const totalFuelCost = fuelEntries?.reduce((acc, e) => acc + Number(e.total_cost), 0) || 0;
+  
+  // Trip/Cycle stats
+  const totalCycles = trips?.reduce((acc, t) => acc + Number(t.cycle_value), 0) || 0;
 
-  const statusConfig = {
+  const statusConfig: Record<string, { label: string; color: string }> = {
     available: { label: 'Disponível', color: 'bg-success text-success-foreground' },
     driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
     resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
     off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
+    vacation: { label: 'Férias', color: 'bg-info text-info-foreground' },
+    leave: { label: 'Licença', color: 'bg-secondary text-secondary-foreground' },
+    terminated: { label: 'Desligado', color: 'bg-destructive text-destructive-foreground' },
   };
 
-  const maintenanceStatusConfig = {
+  const maintenanceStatusConfig: Record<string, { label: string; color: string }> = {
     scheduled: { label: 'Agendada', color: 'bg-info text-info-foreground' },
     in_progress: { label: 'Em andamento', color: 'bg-warning text-warning-foreground' },
     completed: { label: 'Concluída', color: 'bg-success text-success-foreground' },
     overdue: { label: 'Atrasada', color: 'bg-destructive text-destructive-foreground' },
   };
 
-  const alertSeverityConfig = {
+  const alertSeverityConfig: Record<string, { color: string; icon: string }> = {
     info: { color: 'bg-info/20 border-info/30', icon: 'text-info' },
     warning: { color: 'bg-warning/20 border-warning/30', icon: 'text-warning' },
     critical: { color: 'bg-destructive/20 border-destructive/30', icon: 'text-destructive' },
@@ -62,36 +99,89 @@ const Index = () => {
       subtitle="Visão geral da sua frota"
     >
       <div className="space-y-6 animate-fade-in">
+        {/* Period Filter */}
+        <div className="flex items-center justify-between">
+          <DateRangeFilter
+            startDate={startDate}
+            endDate={endDate}
+            onDateChange={handleDateChange}
+          />
+        </div>
+
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Motoristas Ativos"
-            value={activeDrivers}
-            subtitle={`de ${drivers?.length || 0} motoristas`}
-            icon={Users}
-            variant="primary"
-          />
-          <StatCard
-            title="Veículos em Operação"
-            value={vehicles?.filter(v => v.status === 'active').length || 0}
-            subtitle={`${vehiclesInMaintenance} em manutenção`}
-            icon={Truck}
-            variant="success"
-          />
-          <StatCard
-            title="Manutenções Pendentes"
-            value={maintenances?.filter(m => m.status !== 'completed').length || 0}
-            subtitle={overdueMaintenances > 0 ? `${overdueMaintenances} atrasadas` : 'Tudo em dia'}
-            icon={Wrench}
-            variant={overdueMaintenances > 0 ? 'warning' : 'default'}
-          />
-          <StatCard
-            title="Alertas de Pneus"
-            value={criticalTires}
-            subtitle="pneus em estado crítico"
-            icon={CircleDot}
-            variant={criticalTires > 0 ? 'danger' : 'default'}
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/motoristas')}
+          >
+            <StatCard
+              title="Motoristas Ativos"
+              value={activeDrivers}
+              subtitle={`de ${drivers?.length || 0} motoristas`}
+              icon={Users}
+              variant="primary"
+            />
+          </div>
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/veiculos')}
+          >
+            <StatCard
+              title="Veículos em Operação"
+              value={vehicles?.filter(v => v.status === 'active').length || 0}
+              subtitle={`${vehiclesInMaintenance} em manutenção`}
+              icon={Truck}
+              variant="success"
+            />
+          </div>
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/manutencoes')}
+          >
+            <StatCard
+              title="Manutenções Pendentes"
+              value={maintenances?.filter(m => m.status !== 'completed').length || 0}
+              subtitle={overdueMaintenances > 0 ? `${overdueMaintenances} atrasadas` : 'Tudo em dia'}
+              icon={Wrench}
+              variant={overdueMaintenances > 0 ? 'warning' : 'default'}
+            />
+          </div>
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/pneus')}
+          >
+            <StatCard
+              title="Alertas de Pneus"
+              value={criticalTires}
+              subtitle="pneus em estado crítico"
+              icon={CircleDot}
+              variant={criticalTires > 0 ? 'danger' : 'default'}
+            />
+          </div>
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/abastecimentos')}
+          >
+            <StatCard
+              title="Total Abastecimentos"
+              value={`R$ ${totalFuelCost.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+              subtitle={`${fuelEntries?.length || 0} abastecimentos`}
+              icon={DollarSign}
+              variant="default"
+            />
+          </div>
+          <div 
+            className="cursor-pointer transition-transform hover:scale-105"
+            onClick={() => navigate('/viagens')}
+          >
+            <StatCard
+              title="Total de Ciclos"
+              value={totalCycles.toFixed(1)}
+              subtitle={`${trips?.length || 0} viagens`}
+              icon={RotateCcw}
+              variant="primary"
+            />
+          </div>
         </div>
 
         {/* Main Content Grid */}
@@ -105,18 +195,25 @@ const Index = () => {
                   <Clock className="w-5 h-5 text-primary" />
                   Jornada dos Motoristas
                 </h2>
-                <a href="/jornada" className="text-sm text-primary hover:underline">
+                <button 
+                  onClick={() => navigate('/jornada')} 
+                  className="text-sm text-primary hover:underline"
+                >
                   Ver todos
-                </a>
+                </button>
               </div>
               {drivers && drivers.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {drivers.slice(0, 4).map((driver) => {
-                    const status = statusConfig[driver.status];
+                  {drivers.filter(d => d.status !== 'terminated').slice(0, 4).map((driver) => {
+                    const status = statusConfig[driver.status] || statusConfig.available;
                     const progressPercent = ((driver.total_hours_today || 0) / 8) * 100;
                     
                     return (
-                      <div key={driver.id} className="rounded-xl bg-card border border-border p-4">
+                      <div 
+                        key={driver.id} 
+                        className="rounded-xl bg-card border border-border p-4 cursor-pointer hover:border-primary transition-colors"
+                        onClick={() => navigate('/motoristas')}
+                      >
                         <div className="flex items-center gap-3 mb-3">
                           <div className="relative">
                             <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
@@ -128,6 +225,8 @@ const Index = () => {
                               driver.status === 'available' && "bg-success",
                               driver.status === 'resting' && "bg-warning",
                               driver.status === 'off' && "bg-muted",
+                              driver.status === 'vacation' && "bg-info",
+                              driver.status === 'leave' && "bg-secondary",
                             )} />
                           </div>
                           <div className="flex-1">
@@ -158,7 +257,10 @@ const Index = () => {
                   })}
                 </div>
               ) : (
-                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                <div 
+                  className="text-center py-8 bg-card rounded-xl border border-border cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => navigate('/motoristas')}
+                >
                   <User className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">Nenhum motorista cadastrado</p>
                 </div>
@@ -172,17 +274,24 @@ const Index = () => {
                   <Wrench className="w-5 h-5 text-primary" />
                   Manutenções
                 </h2>
-                <a href="/manutencoes" className="text-sm text-primary hover:underline">
+                <button 
+                  onClick={() => navigate('/manutencoes')} 
+                  className="text-sm text-primary hover:underline"
+                >
                   Ver todas
-                </a>
+                </button>
               </div>
               {maintenances && maintenances.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {maintenances.slice(0, 4).map((maintenance) => {
-                    const status = maintenanceStatusConfig[maintenance.status];
+                    const status = maintenanceStatusConfig[maintenance.status] || maintenanceStatusConfig.scheduled;
                     
                     return (
-                      <div key={maintenance.id} className="rounded-xl bg-card border border-border p-4">
+                      <div 
+                        key={maintenance.id} 
+                        className="rounded-xl bg-card border border-border p-4 cursor-pointer hover:border-primary transition-colors"
+                        onClick={() => navigate('/manutencoes')}
+                      >
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <p className="font-medium text-foreground">{maintenance.vehicle_plate}</p>
@@ -201,7 +310,10 @@ const Index = () => {
                   })}
                 </div>
               ) : (
-                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                <div 
+                  className="text-center py-8 bg-card rounded-xl border border-border cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => navigate('/manutencoes')}
+                >
                   <Wrench className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">Nenhuma manutenção cadastrada</p>
                 </div>
@@ -223,17 +335,24 @@ const Index = () => {
                     </span>
                   )}
                 </h2>
-                <a href="/alertas" className="text-sm text-primary hover:underline">
+                <button 
+                  onClick={() => navigate('/alertas')} 
+                  className="text-sm text-primary hover:underline"
+                >
                   Ver todos
-                </a>
+                </button>
               </div>
               {alerts && alerts.length > 0 ? (
                 <div className="space-y-3">
                   {alerts.slice(0, 3).map((alert) => {
-                    const severity = alertSeverityConfig[alert.severity];
+                    const severity = alertSeverityConfig[alert.severity] || alertSeverityConfig.info;
                     
                     return (
-                      <div key={alert.id} className={cn("rounded-xl border p-4", severity.color)}>
+                      <div 
+                        key={alert.id} 
+                        className={cn("rounded-xl border p-4 cursor-pointer hover:opacity-80 transition-opacity", severity.color)}
+                        onClick={() => navigate('/alertas')}
+                      >
                         <div className="flex items-start gap-3">
                           <AlertTriangle className={cn("w-5 h-5 mt-0.5", severity.icon)} />
                           <div className="flex-1 min-w-0">
@@ -246,7 +365,10 @@ const Index = () => {
                   })}
                 </div>
               ) : (
-                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                <div 
+                  className="text-center py-8 bg-card rounded-xl border border-border cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => navigate('/alertas')}
+                >
                   <AlertTriangle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">Nenhum alerta</p>
                 </div>
@@ -260,9 +382,12 @@ const Index = () => {
                   <CircleDot className="w-5 h-5 text-primary" />
                   Pneus Críticos
                 </h2>
-                <a href="/pneus" className="text-sm text-primary hover:underline">
+                <button 
+                  onClick={() => navigate('/pneus')} 
+                  className="text-sm text-primary hover:underline"
+                >
                   Ver todos
-                </a>
+                </button>
               </div>
               {tires && tires.filter(t => t.status !== 'good').length > 0 ? (
                 <div className="space-y-3">
@@ -271,7 +396,11 @@ const Index = () => {
                     const wearPercent = (usedMileage / tire.max_mileage) * 100;
                     
                     return (
-                      <div key={tire.id} className="rounded-xl bg-card border border-border p-4">
+                      <div 
+                        key={tire.id} 
+                        className="rounded-xl bg-card border border-border p-4 cursor-pointer hover:border-primary transition-colors"
+                        onClick={() => navigate('/pneus')}
+                      >
                         <div className="flex items-start justify-between mb-2">
                           <div>
                             <p className="font-medium text-foreground">{tire.vehicle_plate}</p>
@@ -298,7 +427,10 @@ const Index = () => {
                   })}
                 </div>
               ) : (
-                <div className="text-center py-8 bg-card rounded-xl border border-border">
+                <div 
+                  className="text-center py-8 bg-card rounded-xl border border-border cursor-pointer hover:border-primary transition-colors"
+                  onClick={() => navigate('/pneus')}
+                >
                   <CircleDot className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">Nenhum pneu crítico</p>
                 </div>

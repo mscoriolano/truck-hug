@@ -35,14 +35,25 @@ export interface CreateFuelEntryInput {
   entry_date?: string;
 }
 
-export const useFuelEntries = () => {
+export const useFuelEntries = (startDate?: Date, endDate?: Date) => {
   return useQuery({
-    queryKey: ['fuel_entries'],
+    queryKey: ['fuel_entries', startDate?.toISOString(), endDate?.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('fuel_entries')
         .select('*')
         .order('entry_date', { ascending: false });
+      
+      if (startDate) {
+        query = query.gte('entry_date', startDate.toISOString());
+      }
+      if (endDate) {
+        const endOfDay = new Date(endDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        query = query.lte('entry_date', endOfDay.toISOString());
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       return data as FuelEntry[];

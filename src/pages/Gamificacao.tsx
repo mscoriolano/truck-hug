@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { useDriverScores } from '@/hooks/useDriverScores';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { useMaintenances } from '@/hooks/useMaintenances';
 import { useTires } from '@/hooks/useTires';
+import { useTrips } from '@/hooks/useTrips';
 import { Badge } from '@/components/ui/badge';
 import { 
   Loader2, 
@@ -16,15 +19,13 @@ import {
   Clock,
   Gauge,
   Star,
-  TrendingUp,
-  TrendingDown
+  RotateCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
-  PolarRadiusAxis,
   Radar,
   ResponsiveContainer,
   BarChart,
@@ -63,24 +64,37 @@ const getScoreBadge = (score: number) => {
 };
 
 const Gamificacao = () => {
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
+
   const { data: drivers, isLoading: loadingDrivers } = useDrivers();
-  const { data: fuelEntries, isLoading: loadingFuel } = useFuelEntries();
+  const { data: fuelEntries, isLoading: loadingFuel } = useFuelEntries(startDate, endDate);
   const { data: maintenances, isLoading: loadingMaint } = useMaintenances();
   const { data: tires, isLoading: loadingTires } = useTires();
+  const { data: trips, isLoading: loadingTrips } = useTrips(startDate, endDate);
 
-  const isLoading = loadingDrivers || loadingFuel || loadingMaint || loadingTires;
+  const handleDateChange = (start?: Date, end?: Date) => {
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const isLoading = loadingDrivers || loadingFuel || loadingMaint || loadingTires || loadingTrips;
 
   // Calcular pontuações por motorista
-  const driverPerformance = drivers?.map(driver => {
-    // Abastecimentos do motorista
+  const driverPerformance = drivers?.filter(d => d.status !== 'terminated').map(driver => {
+    // Abastecimentos do motorista no período
     const driverFuel = fuelEntries?.filter(f => f.driver_id === driver.id) || [];
     const totalLiters = driverFuel.reduce((acc, f) => acc + Number(f.liters), 0);
-    const totalKm = driverFuel.length > 0 
+    const totalKm = driverFuel.length > 1 
       ? Math.max(...driverFuel.map(f => f.mileage)) - Math.min(...driverFuel.map(f => f.mileage))
       : 0;
-    const avgConsumption = totalKm > 0 ? totalKm / totalLiters : 0;
+    const avgConsumption = totalLiters > 0 ? totalKm / totalLiters : 0;
     
-    // Manutenções corretivas (veículos que o motorista usa)
+    // Ciclos do motorista no período
+    const driverTrips = trips?.filter(t => t.driver_id === driver.id) || [];
+    const totalCycles = driverTrips.reduce((acc, t) => acc + Number(t.cycle_value), 0);
+    
+    // Manutenções corretivas
     const correctiveMaint = maintenances?.filter(m => 
       m.type === 'corrective' && m.status === 'completed'
     ).length || 0;
@@ -95,7 +109,7 @@ const Gamificacao = () => {
     const tireScore = Math.max(0, 100 - (criticalTires * 15));
     const maintScore = Math.max(0, 100 - (correctiveMaint * 10));
     const journeyScore = driver.status === 'driving' || driver.status === 'available' ? 85 : 70;
-    const speedScore = 80 + Math.floor(Math.random() * 15); // Simulado - seria da API do rastreador
+    const speedScore = 80 + Math.floor(Math.random() * 15); // Simulado
 
     const totalScore = Math.round((fuelScore + tireScore + maintScore + journeyScore + speedScore) / 5);
 
@@ -111,8 +125,10 @@ const Gamificacao = () => {
       totalScore,
       avgConsumption: avgConsumption.toFixed(2),
       totalKm,
+      totalCycles,
       tireIncidents: criticalTires,
       correctiveMaint,
+      abastecimentos: driverFuel.length,
     };
   }).sort((a, b) => b.totalScore - a.totalScore) || [];
 
@@ -134,6 +150,15 @@ const Gamificacao = () => {
       subtitle="Ranking e performance dos motoristas"
     >
       <div className="space-y-6 animate-fade-in">
+        {/* Period Filter */}
+        <div className="flex items-center justify-between">
+          <DateRangeFilter
+            startDate={startDate}
+            endDate={endDate}
+            onDateChange={handleDateChange}
+          />
+        </div>
+
         {/* Top Performer Highlight */}
         {topPerformer && (
           <div className="rounded-xl bg-gradient-to-r from-yellow-500/20 via-amber-500/10 to-orange-500/20 border border-yellow-500/30 p-6">
@@ -142,11 +167,17 @@ const Gamificacao = () => {
                 <Trophy className="w-10 h-10 text-yellow-500" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground">Melhor Performance do Mês</p>
+                <p className="text-sm text-muted-foreground">Melhor Performance do Período</p>
                 <h2 className="text-2xl font-bold text-foreground">{topPerformer.name}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                  <span className="text-lg font-semibold text-yellow-500">{topPerformer.totalScore} pontos</span>
+                <div className="flex items-center gap-4 mt-1">
+                  <div className="flex items-center gap-1">
+                    <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                    <span className="text-lg font-semibold text-yellow-500">{topPerformer.totalScore} pontos</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-muted-foreground">
+                    <RotateCcw className="w-4 h-4" />
+                    <span className="text-sm">{topPerformer.totalCycles.toFixed(1)} ciclos</span>
+                  </div>
                 </div>
               </div>
               <div className="hidden md:block">
@@ -227,7 +258,11 @@ const Gamificacao = () => {
                       <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
                         <span>Média: {driver.avgConsumption} km/L</span>
                         <span>•</span>
-                        <span>{driver.totalKm.toLocaleString('pt-BR')} km rodados</span>
+                        <span>{driver.totalKm.toLocaleString('pt-BR')} km</span>
+                        <span>•</span>
+                        <span>{driver.totalCycles.toFixed(1)} ciclos</span>
+                        <span>•</span>
+                        <span>{driver.abastecimentos} abast.</span>
                       </div>
                     </div>
                     

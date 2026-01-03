@@ -49,13 +49,16 @@ export const TripForm = () => {
     e.preventDefault();
     if (!formData.trip_type) return;
     
+    // Construir data com horário ao meio-dia para evitar problemas de fuso horário
+    const departureDateWithTime = `${formData.departure_date}T12:00:00`;
+    
     await createTrip.mutateAsync({
       vehicle_id: formData.vehicle_id,
       vehicle_plate: formData.vehicle_plate,
       driver_id: formData.driver_id,
       driver_name: formData.driver_name,
       trip_type: formData.trip_type,
-      departure_date: formData.departure_date,
+      departure_date: departureDateWithTime,
       weight: formData.weight,
       notes: formData.notes || undefined,
     });
