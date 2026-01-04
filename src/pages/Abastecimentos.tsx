@@ -76,7 +76,11 @@ const Abastecimentos = () => {
       kmPerLiter = kmRodados / Number(entry.liters);
     }
     
-    return { ...entry, kmPerLiter, kmRodados };
+    // Pegar meta do veículo
+    const vehicle = vehicles?.find(v => v.id === entry.vehicle_id);
+    const target = Number(vehicle?.consumption_target) || 2.5;
+    
+    return { ...entry, kmPerLiter, kmRodados, target };
   }) || [];
 
   // Estatísticas
@@ -116,7 +120,7 @@ const Abastecimentos = () => {
     return acc;
   }, [] as { driver_name: string; abastecimentos: number; liters: number; cost: number }[]) || [];
 
-  // Km rodados por motorista
+  // Km rodados por motorista com consumo
   const kmByDriver = entriesWithConsumption.reduce((acc, entry) => {
     const existing = acc.find(d => d.driver_name === entry.driver_name);
     if (existing) {
@@ -131,6 +135,12 @@ const Abastecimentos = () => {
     }
     return acc;
   }, [] as { driver_name: string; km: number; liters: number }[]);
+
+  // Média km/L por motorista
+  const avgKmLByDriver = kmByDriver.map(d => ({
+    driver_name: d.driver_name,
+    avgKmL: d.liters > 0 ? Number((d.km / d.liters).toFixed(2)) : 0,
+  }));
 
   // Km rodados por veículo
   const kmByVehicle = entriesWithConsumption.reduce((acc, entry) => {
@@ -148,6 +158,20 @@ const Abastecimentos = () => {
     return acc;
   }, [] as { vehicle_plate: string; km: number; liters: number }[]);
 
+  // Custo total por veículo
+  const costByVehicle = fuelEntries?.reduce((acc, entry) => {
+    const existing = acc.find(v => v.vehicle_plate === entry.vehicle_plate);
+    if (existing) {
+      existing.cost += Number(entry.total_cost);
+    } else {
+      acc.push({
+        vehicle_plate: entry.vehicle_plate,
+        cost: Number(entry.total_cost),
+      });
+    }
+    return acc;
+  }, [] as { vehicle_plate: string; cost: number }[]) || [];
+
   // Média km/L por veículo com meta
   const consumptionByVehicle = kmByVehicle.map(v => {
     const vehicle = vehicles?.find(veh => veh.plate === v.vehicle_plate);
@@ -159,6 +183,32 @@ const Abastecimentos = () => {
       target,
     };
   });
+
+  // Economia/Prejuízo por motorista comparando com meta
+  // Para cada abastecimento, calcular a diferença entre consumo real e meta
+  const savingsByDriver = entriesWithConsumption.reduce((acc, entry) => {
+    if (entry.kmPerLiter > 0 && entry.kmRodados > 0) {
+      // Litros que seriam usados na meta
+      const expectedLiters = entry.kmRodados / entry.target;
+      // Litros realmente usados
+      const actualLiters = Number(entry.liters);
+      // Diferença (positivo = economia, negativo = prejuízo)
+      const litersSaved = expectedLiters - actualLiters;
+      // Valor economizado/perdido
+      const valueSaved = litersSaved * Number(entry.price_per_liter);
+      
+      const existing = acc.find(d => d.driver_name === entry.driver_name);
+      if (existing) {
+        existing.saving += valueSaved;
+      } else {
+        acc.push({
+          driver_name: entry.driver_name,
+          saving: valueSaved,
+        });
+      }
+    }
+    return acc;
+  }, [] as { driver_name: string; saving: number }[]);
 
   // Dados para gráfico de consumo ao longo do tempo
   const consumptionOverTime = entriesWithConsumption
@@ -307,14 +357,14 @@ const Abastecimentos = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Km por Motorista */}
+              {/* Média km/L por Motorista */}
               <div className="rounded-xl bg-card border border-border p-5">
                 <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-                  <Route className="w-4 h-4" />
-                  Km Rodados por Motorista
+                  <Gauge className="w-4 h-4" />
+                  Média km/L por Motorista
                 </h3>
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={kmByDriver.sort((a, b) => b.km - a.km)}>
+                  <ComposedChart data={avgKmLByDriver.sort((a, b) => b.avgKmL - a.avgKmL)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis 
                       dataKey="driver_name" 
@@ -328,24 +378,25 @@ const Abastecimentos = () => {
                         border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                       }}
-                      formatter={(value: number) => [`${value.toLocaleString('pt-BR')} km`, 'Km Rodados']}
+                      formatter={(value: number) => [`${value.toFixed(2)} km/L`, 'Consumo']}
                     />
-                    <Bar dataKey="km" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <Bar dataKey="avgKmL" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                    <ReferenceLine y={avgTarget} stroke="hsl(var(--destructive))" strokeDasharray="5 5" label={{ value: `Meta: ${avgTarget}`, fill: 'hsl(var(--destructive))', fontSize: 12 }} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
             {/* Segunda linha de gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Km por Veículo */}
+              {/* Custo por Veículo */}
               <div className="rounded-xl bg-card border border-border p-5">
                 <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-                  <TruckIcon className="w-4 h-4" />
-                  Km Rodados por Veículo
+                  <DollarSign className="w-4 h-4" />
+                  Custo Total por Veículo
                 </h3>
                 <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={kmByVehicle.sort((a, b) => b.km - a.km)}>
+                  <BarChart data={costByVehicle.sort((a, b) => b.cost - a.cost)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis 
                       dataKey="vehicle_plate" 
@@ -358,9 +409,9 @@ const Abastecimentos = () => {
                         border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                       }}
-                      formatter={(value: number) => [`${value.toLocaleString('pt-BR')} km`, 'Km Rodados']}
+                      formatter={(value: number) => [`R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 'Custo']}
                     />
-                    <Bar dataKey="km" fill="hsl(var(--info))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="cost" fill="hsl(var(--warning))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -397,15 +448,126 @@ const Abastecimentos = () => {
               </div>
             </div>
 
-            {/* Evolução do Consumo */}
-            {consumptionOverTime.length > 0 && (
+            {/* Terceira linha - Economia/Prejuízo */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Economia/Prejuízo por Motorista */}
               <div className="rounded-xl bg-card border border-border p-5">
-                <h3 className="font-semibold text-foreground mb-4">Evolução do Consumo (km/L)</h3>
+                <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Economia/Prejuízo por Motorista
+                </h3>
+                <p className="text-xs text-muted-foreground mb-4">
+                  Valores positivos = economia | Valores negativos = prejuízo (comparado à meta)
+                </p>
                 <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={consumptionOverTime}>
+                  <BarChart data={savingsByDriver.sort((a, b) => b.saving - a.saving)}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis 
-                      dataKey="date" 
+                      dataKey="driver_name" 
+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                      tickFormatter={(value) => value.split(' ')[0]}
+                    />
+                    <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      formatter={(value: number) => [
+                        `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, signDisplay: 'always' })}`, 
+                        value >= 0 ? 'Economia' : 'Prejuízo'
+                      ]}
+                    />
+                    <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" />
+                    <Bar 
+                      dataKey="saving" 
+                      radius={[4, 4, 0, 0]}
+                      fill="hsl(var(--success))"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Evolução do Consumo */}
+              {consumptionOverTime.length > 0 && (
+                <div className="rounded-xl bg-card border border-border p-5">
+                  <h3 className="font-semibold text-foreground mb-4">Evolução do Consumo (km/L)</h3>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <LineChart data={consumptionOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                      />
+                      <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'hsl(var(--card))', 
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '8px',
+                        }}
+                        formatter={(value: number, name: string) => [`${value.toFixed(2)} km/L`, name === 'kmL' ? 'Consumo' : name]}
+                        labelFormatter={(label) => `Data: ${label}`}
+                      />
+                      <ReferenceLine y={avgTarget} stroke="hsl(var(--destructive))" strokeDasharray="5 5" />
+                      <Line 
+                        type="monotone" 
+                        dataKey="kmL" 
+                        stroke="hsl(var(--primary))" 
+                        strokeWidth={2}
+                        dot={{ fill: 'hsl(var(--primary))' }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                  <p className="text-xs text-muted-foreground mt-2 text-center">
+                    Linha vermelha tracejada = Meta de consumo ({avgTarget.toFixed(2)} km/L)
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Quarta linha - Km Rodados */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Km por Motorista */}
+              <div className="rounded-xl bg-card border border-border p-5">
+                <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <Route className="w-4 h-4" />
+                  Km Rodados por Motorista
+                </h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={kmByDriver.sort((a, b) => b.km - a.km)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis 
+                      dataKey="driver_name" 
+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                      tickFormatter={(value) => value.split(' ')[0]}
+                    />
+                    <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      formatter={(value: number) => [`${value.toLocaleString('pt-BR')} km`, 'Km Rodados']}
+                    />
+                    <Bar dataKey="km" fill="hsl(var(--info))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Km por Veículo */}
+              <div className="rounded-xl bg-card border border-border p-5">
+                <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <TruckIcon className="w-4 h-4" />
+                  Km Rodados por Veículo
+                </h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={kmByVehicle.sort((a, b) => b.km - a.km)}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis 
+                      dataKey="vehicle_plate" 
                       tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
                     />
                     <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
@@ -415,24 +577,13 @@ const Abastecimentos = () => {
                         border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                       }}
-                      formatter={(value: number, name: string) => [`${value.toFixed(2)} km/L`, name === 'kmL' ? 'Consumo' : name]}
-                      labelFormatter={(label) => `Data: ${label}`}
+                      formatter={(value: number) => [`${value.toLocaleString('pt-BR')} km`, 'Km Rodados']}
                     />
-                    <ReferenceLine y={avgTarget} stroke="hsl(var(--destructive))" strokeDasharray="5 5" />
-                    <Line 
-                      type="monotone" 
-                      dataKey="kmL" 
-                      stroke="hsl(var(--primary))" 
-                      strokeWidth={2}
-                      dot={{ fill: 'hsl(var(--primary))' }}
-                    />
-                  </LineChart>
+                    <Bar dataKey="km" fill="hsl(var(--info))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
                 </ResponsiveContainer>
-                <p className="text-xs text-muted-foreground mt-2 text-center">
-                  Linha vermelha tracejada = Meta de consumo ({avgTarget.toFixed(2)} km/L)
-                </p>
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -457,9 +608,7 @@ const Abastecimentos = () => {
                   </thead>
                   <tbody>
                     {entriesWithConsumption.map((entry) => {
-                      const vehicle = vehicles?.find(v => v.id === entry.vehicle_id);
-                      const target = Number(vehicle?.consumption_target) || 2.5;
-                      const isAboveTarget = entry.kmPerLiter >= target;
+                      const isAboveTarget = entry.kmPerLiter >= entry.target;
                       
                       return (
                         <tr 
