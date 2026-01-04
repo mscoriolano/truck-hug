@@ -13,7 +13,8 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Package,
-  RotateCcw
+  RotateCcw,
+  User
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -24,10 +25,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 
 const Viagens = () => {
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
+  const [view, setView] = useState<'list' | 'charts'>('list');
   
   const { data: trips, isLoading } = useTrips(startDate, endDate);
   const deleteTrip = useDeleteTrip();
@@ -43,6 +54,8 @@ const Viagens = () => {
     totalCycles: trips?.reduce((acc, t) => acc + Number(t.cycle_value), 0) || 0,
     escoamento: trips?.filter(t => t.trip_type === 'escoamento').length || 0,
     abastecimento: trips?.filter(t => t.trip_type === 'abastecimento').length || 0,
+    pesoEscoamento: trips?.filter(t => t.trip_type === 'escoamento').reduce((acc, t) => acc + Number(t.weight), 0) || 0,
+    pesoAbastecimento: trips?.filter(t => t.trip_type === 'abastecimento').reduce((acc, t) => acc + Number(t.weight), 0) || 0,
   };
 
   // Ciclos por motorista
@@ -94,7 +107,7 @@ const Viagens = () => {
     >
       <div className="space-y-6 animate-fade-in">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="rounded-xl bg-card border border-border p-4">
             <div className="flex items-center gap-2 mb-2">
               <Truck className="w-5 h-5 text-primary" />
@@ -123,20 +136,116 @@ const Viagens = () => {
             </div>
             <p className="text-2xl font-bold text-foreground">{stats.abastecimento}</p>
           </div>
+          <div className="rounded-xl bg-card border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package className="w-5 h-5 text-warning" />
+              <span className="text-sm text-muted-foreground">Peso Escoam.</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">
+              {(stats.pesoEscoamento / 1000).toFixed(1)} t
+            </p>
+          </div>
+          <div className="rounded-xl bg-card border border-border p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package className="w-5 h-5 text-info" />
+              <span className="text-sm text-muted-foreground">Peso Abast.</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">
+              {(stats.pesoAbastecimento / 1000).toFixed(1)} t
+            </p>
+          </div>
         </div>
 
-        {/* Filtros e Form */}
+        {/* Toggle, Filtros e Form */}
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <DateRangeFilter
-            startDate={startDate}
-            endDate={endDate}
-            onDateChange={handleDateChange}
-          />
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex gap-1 p-1 bg-secondary rounded-lg">
+              <Button
+                variant={view === 'list' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setView('list')}
+              >
+                Lista
+              </Button>
+              <Button
+                variant={view === 'charts' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setView('charts')}
+              >
+                Gráficos
+              </Button>
+            </div>
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              onDateChange={handleDateChange}
+            />
+          </div>
           <TripForm />
         </div>
 
-        {/* Resumo por Motorista e Veículo */}
-        {trips && trips.length > 0 && (
+        {/* Gráficos */}
+        {view === 'charts' && trips && trips.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Ciclos por Motorista - Gráfico */}
+            <div className="rounded-xl bg-card border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <User className="w-4 h-4" />
+                Ciclos por Motorista
+              </h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={cyclesByDriver.sort((a, b) => b.cycles - a.cycles)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis 
+                    dataKey="driver_name" 
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                    tickFormatter={(value) => value.split(' ')[0]}
+                  />
+                  <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                    formatter={(value: number) => [`${value.toFixed(1)} ciclos`, 'Ciclos']}
+                  />
+                  <Bar dataKey="cycles" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Ciclos por Veículo - Gráfico */}
+            <div className="rounded-xl bg-card border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Truck className="w-4 h-4" />
+                Ciclos por Veículo
+              </h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={cyclesByVehicle.sort((a, b) => b.cycles - a.cycles)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis 
+                    dataKey="vehicle_plate" 
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                  />
+                  <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                    formatter={(value: number) => [`${value.toFixed(1)} ciclos`, 'Ciclos']}
+                  />
+                  <Bar dataKey="cycles" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Resumo por Motorista e Veículo (lista) */}
+        {view === 'list' && trips && trips.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="rounded-xl bg-card border border-border p-5">
               <h3 className="font-semibold text-foreground mb-4">Ciclos por Motorista</h3>
@@ -175,98 +284,102 @@ const Viagens = () => {
         )}
 
         {/* Lista de viagens */}
-        {trips && trips.length > 0 ? (
-          <div className="rounded-xl border border-border overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-secondary">
-                <tr>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Data</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Tipo</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Veículo</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Motorista</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Peso (kg)</th>
-                  <th className="text-left p-4 text-sm font-medium text-muted-foreground">Ciclo</th>
-                  <th className="p-4"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {trips.map((trip) => (
-                  <tr 
-                    key={trip.id} 
-                    className="border-t border-border hover:bg-secondary/50 transition-colors"
-                  >
-                    <td className="p-4 text-sm text-foreground">
-                      {format(new Date(trip.departure_date), "dd/MM/yyyy", { locale: ptBR })}
-                    </td>
-                    <td className="p-4">
-                      <Badge className={cn(
-                        "text-xs",
-                        trip.trip_type === 'escoamento' 
-                          ? "bg-warning text-warning-foreground" 
-                          : "bg-info text-info-foreground"
-                      )}>
-                        <span className="flex items-center gap-1">
-                          {trip.trip_type === 'escoamento' ? (
-                            <><ArrowUpRight className="w-3 h-3" /> Escoamento</>
-                          ) : (
-                            <><ArrowDownLeft className="w-3 h-3" /> Abastecimento</>
-                          )}
-                        </span>
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-sm font-medium text-foreground">
-                      {trip.vehicle_plate}
-                    </td>
-                    <td className="p-4 text-sm text-foreground">{trip.driver_name}</td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-1 text-sm">
-                        <Package className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className={cn(
-                          Number(trip.weight) > 0 ? "text-foreground" : "text-muted-foreground"
-                        )}>
-                          {Number(trip.weight).toLocaleString('pt-BR')}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <Badge className={cn(
-                        "text-xs",
-                        Number(trip.cycle_value) > 0 
-                          ? "bg-success text-success-foreground" 
-                          : "bg-muted text-muted-foreground"
-                      )}>
-                        {Number(trip.cycle_value).toFixed(1)}
-                      </Badge>
-                    </td>
-                    <td className="p-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem 
-                            className="text-destructive"
-                            onClick={() => deleteTrip.mutate(trip.id)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="text-center py-12 rounded-xl border border-border bg-card">
-            <Truck className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground mb-4">Nenhuma viagem registrada</p>
-            <TripForm />
-          </div>
+        {view === 'list' && (
+          <>
+            {trips && trips.length > 0 ? (
+              <div className="rounded-xl border border-border overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-secondary">
+                    <tr>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Data</th>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Tipo</th>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Veículo</th>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Motorista</th>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Peso (t)</th>
+                      <th className="text-left p-4 text-sm font-medium text-muted-foreground">Ciclo</th>
+                      <th className="p-4"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trips.map((trip) => (
+                      <tr 
+                        key={trip.id} 
+                        className="border-t border-border hover:bg-secondary/50 transition-colors"
+                      >
+                        <td className="p-4 text-sm text-foreground">
+                          {format(new Date(trip.departure_date), "dd/MM/yyyy", { locale: ptBR })}
+                        </td>
+                        <td className="p-4">
+                          <Badge className={cn(
+                            "text-xs",
+                            trip.trip_type === 'escoamento' 
+                              ? "bg-warning text-warning-foreground" 
+                              : "bg-info text-info-foreground"
+                          )}>
+                            <span className="flex items-center gap-1">
+                              {trip.trip_type === 'escoamento' ? (
+                                <><ArrowUpRight className="w-3 h-3" /> Escoamento</>
+                              ) : (
+                                <><ArrowDownLeft className="w-3 h-3" /> Abastecimento</>
+                              )}
+                            </span>
+                          </Badge>
+                        </td>
+                        <td className="p-4 text-sm font-medium text-foreground">
+                          {trip.vehicle_plate}
+                        </td>
+                        <td className="p-4 text-sm text-foreground">{trip.driver_name}</td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-1 text-sm">
+                            <Package className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className={cn(
+                              Number(trip.weight) > 0 ? "text-foreground" : "text-muted-foreground"
+                            )}>
+                              {(Number(trip.weight) / 1000).toFixed(2)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Badge className={cn(
+                            "text-xs",
+                            Number(trip.cycle_value) > 0 
+                              ? "bg-success text-success-foreground" 
+                              : "bg-muted text-muted-foreground"
+                          )}>
+                            {Number(trip.cycle_value).toFixed(1)}
+                          </Badge>
+                        </td>
+                        <td className="p-4">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => deleteTrip.mutate(trip.id)}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-12 rounded-xl border border-border bg-card">
+                <Truck className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground mb-4">Nenhuma viagem registrada</p>
+                <TripForm />
+              </div>
+            )}
+          </>
         )}
       </div>
     </MainLayout>
