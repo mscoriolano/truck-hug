@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useTires, useDeleteTire } from '@/hooks/useTires';
+import { useTires, useDeleteTire, Tire } from '@/hooks/useTires';
 import { useVehicles } from '@/hooks/useVehicles';
 import { TireForm } from '@/components/forms/TireForm';
+import { TireEditForm } from '@/components/forms/TireEditForm';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CircleDot, AlertTriangle, CheckCircle, Loader2, MoreVertical, Trash2 } from 'lucide-react';
+import { CircleDot, AlertTriangle, CheckCircle, Loader2, MoreVertical, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -26,6 +27,7 @@ const statusConfig = {
 const Pneus = () => {
   const [filter, setFilter] = useState<'all' | 'good' | 'warning' | 'critical'>('all');
   const [vehicleFilter, setVehicleFilter] = useState<string>('all');
+  const [editingTire, setEditingTire] = useState<Tire | null>(null);
 
   const { data: tires, isLoading } = useTires();
   const { data: vehicles } = useVehicles();
@@ -155,6 +157,10 @@ const Pneus = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingTire(tire)}>
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
                           <DropdownMenuItem 
                             className="text-destructive"
                             onClick={() => deleteTire.mutate(tire.id)}
@@ -211,6 +217,15 @@ const Pneus = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de Edição */}
+      {editingTire && (
+        <TireEditForm 
+          tire={editingTire} 
+          open={!!editingTire} 
+          onOpenChange={(open) => !open && setEditingTire(null)} 
+        />
+      )}
     </MainLayout>
   );
 };
