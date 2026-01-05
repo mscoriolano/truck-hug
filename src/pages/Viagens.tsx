@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useTrips, useDeleteTrip } from '@/hooks/useTrips';
+import { useTrips, useDeleteTrip, Trip } from '@/hooks/useTrips';
 import { TripForm } from '@/components/forms/TripForm';
+import { TripEditForm } from '@/components/forms/TripEditForm';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import {
   Loader2, 
   MoreVertical, 
   Trash2,
+  Pencil,
   ArrowUpRight,
   ArrowDownLeft,
   Package,
@@ -33,12 +35,14 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  LabelList,
 } from 'recharts';
 
 const Viagens = () => {
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [view, setView] = useState<'list' | 'charts'>('list');
+  const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   
   const { data: trips, isLoading } = useTrips(startDate, endDate);
   const deleteTrip = useDeleteTrip();
@@ -48,7 +52,7 @@ const Viagens = () => {
     setEndDate(end);
   };
 
-  // Calcular estatísticas de ciclos
+  // Calcular estatísticas de ciclos - sem conversão de peso
   const stats = {
     totalTrips: trips?.length || 0,
     totalCycles: trips?.reduce((acc, t) => acc + Number(t.cycle_value), 0) || 0,
@@ -106,7 +110,7 @@ const Viagens = () => {
       subtitle="Controle de viagens e ciclos"
     >
       <div className="space-y-6 animate-fade-in">
-        {/* Stats */}
+        {/* Stats - Peso exibido sem conversão (já está em toneladas) */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="rounded-xl bg-card border border-border p-4">
             <div className="flex items-center gap-2 mb-2">
@@ -142,7 +146,7 @@ const Viagens = () => {
               <span className="text-sm text-muted-foreground">Peso Escoam.</span>
             </div>
             <p className="text-2xl font-bold text-foreground">
-              {(stats.pesoEscoamento / 1000).toFixed(1)} t
+              {stats.pesoEscoamento.toFixed(2)} t
             </p>
           </div>
           <div className="rounded-xl bg-card border border-border p-4">
@@ -151,7 +155,7 @@ const Viagens = () => {
               <span className="text-sm text-muted-foreground">Peso Abast.</span>
             </div>
             <p className="text-2xl font-bold text-foreground">
-              {(stats.pesoAbastecimento / 1000).toFixed(1)} t
+              {stats.pesoAbastecimento.toFixed(2)} t
             </p>
           </div>
         </div>
@@ -210,7 +214,9 @@ const Viagens = () => {
                     }}
                     formatter={(value: number) => [`${value.toFixed(1)} ciclos`, 'Ciclos']}
                   />
-                  <Bar dataKey="cycles" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="cycles" fill="hsl(var(--success))" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="cycles" position="top" fill="hsl(var(--foreground))" fontSize={11} formatter={(v: number) => v.toFixed(1)} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -237,7 +243,9 @@ const Viagens = () => {
                     }}
                     formatter={(value: number) => [`${value.toFixed(1)} ciclos`, 'Ciclos']}
                   />
-                  <Bar dataKey="cycles" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="cycles" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey="cycles" position="top" fill="hsl(var(--foreground))" fontSize={11} formatter={(v: number) => v.toFixed(1)} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -335,7 +343,7 @@ const Viagens = () => {
                             <span className={cn(
                               Number(trip.weight) > 0 ? "text-foreground" : "text-muted-foreground"
                             )}>
-                              {(Number(trip.weight) / 1000).toFixed(2)}
+                              {Number(trip.weight).toFixed(2)}
                             </span>
                           </div>
                         </td>
@@ -357,6 +365,10 @@ const Viagens = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setEditingTrip(trip)}>
+                                <Pencil className="w-4 h-4 mr-2" />
+                                Editar
+                              </DropdownMenuItem>
                               <DropdownMenuItem 
                                 className="text-destructive"
                                 onClick={() => deleteTrip.mutate(trip.id)}
@@ -382,6 +394,15 @@ const Viagens = () => {
           </>
         )}
       </div>
+
+      {/* Modal de Edição */}
+      {editingTrip && (
+        <TripEditForm 
+          trip={editingTrip} 
+          open={!!editingTrip} 
+          onOpenChange={(open) => !open && setEditingTrip(null)} 
+        />
+      )}
     </MainLayout>
   );
 };

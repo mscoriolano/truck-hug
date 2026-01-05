@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useMaintenances, useDeleteMaintenance } from '@/hooks/useMaintenances';
+import { useMaintenances, useDeleteMaintenance, Maintenance } from '@/hooks/useMaintenances';
 import { MaintenanceForm } from '@/components/forms/MaintenanceForm';
+import { MaintenanceEditForm } from '@/components/forms/MaintenanceEditForm';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Wrench, Calendar, AlertTriangle, CheckCircle, Loader2, MoreVertical, Trash2 } from 'lucide-react';
+import { Wrench, Calendar, AlertTriangle, CheckCircle, Loader2, MoreVertical, Trash2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -34,6 +35,7 @@ const categoryConfig = {
 const Manutencoes = () => {
   const [filter, setFilter] = useState<'all' | 'scheduled' | 'in_progress' | 'overdue' | 'completed'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'preventive' | 'corrective'>('all');
+  const [editingMaintenance, setEditingMaintenance] = useState<Maintenance | null>(null);
   
   const { data: maintenances, isLoading } = useMaintenances();
   const deleteMaintenance = useDeleteMaintenance();
@@ -163,6 +165,10 @@ const Manutencoes = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setEditingMaintenance(maintenance)}>
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
                           <DropdownMenuItem 
                             className="text-destructive"
                             onClick={() => deleteMaintenance.mutate(maintenance.id)}
@@ -205,6 +211,15 @@ const Manutencoes = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de Edição */}
+      {editingMaintenance && (
+        <MaintenanceEditForm 
+          maintenance={editingMaintenance} 
+          open={!!editingMaintenance} 
+          onOpenChange={(open) => !open && setEditingMaintenance(null)} 
+        />
+      )}
     </MainLayout>
   );
 };

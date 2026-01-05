@@ -1,17 +1,21 @@
-import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus } from 'lucide-react';
-import { useCreateTrip } from '@/hooks/useTrips';
+import { useUpdateTrip, Trip } from '@/hooks/useTrips';
 import { useVehicles } from '@/hooks/useVehicles';
 import { useDrivers } from '@/hooks/useDrivers';
 
-export const TripForm = () => {
-  const [open, setOpen] = useState(false);
+interface TripEditFormProps {
+  trip: Trip;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export const TripEditForm = ({ trip, open, onOpenChange }: TripEditFormProps) => {
   const [formData, setFormData] = useState({
     vehicle_id: '',
     vehicle_plate: '',
@@ -23,9 +27,24 @@ export const TripForm = () => {
     notes: '',
   });
   
-  const createTrip = useCreateTrip();
+  const updateTrip = useUpdateTrip();
   const { data: vehicles } = useVehicles();
   const { data: drivers } = useDrivers();
+
+  useEffect(() => {
+    if (trip) {
+      setFormData({
+        vehicle_id: trip.vehicle_id,
+        vehicle_plate: trip.vehicle_plate,
+        driver_id: trip.driver_id,
+        driver_name: trip.driver_name,
+        trip_type: trip.trip_type,
+        departure_date: trip.departure_date.split('T')[0],
+        weight: trip.weight,
+        notes: trip.notes || '',
+      });
+    }
+  }, [trip]);
 
   const handleVehicleChange = (vehicleId: string) => {
     const vehicle = vehicles?.find(v => v.id === vehicleId);
@@ -49,10 +68,10 @@ export const TripForm = () => {
     e.preventDefault();
     if (!formData.trip_type) return;
     
-    // Construir data com horário ao meio-dia para evitar problemas de fuso horário
     const departureDateWithTime = `${formData.departure_date}T12:00:00`;
     
-    await createTrip.mutateAsync({
+    await updateTrip.mutateAsync({
+      id: trip.id,
       vehicle_id: formData.vehicle_id,
       vehicle_plate: formData.vehicle_plate,
       driver_id: formData.driver_id,
@@ -63,30 +82,14 @@ export const TripForm = () => {
       notes: formData.notes || undefined,
     });
     
-    setFormData({
-      vehicle_id: '',
-      vehicle_plate: '',
-      driver_id: '',
-      driver_name: '',
-      trip_type: '',
-      departure_date: '',
-      weight: 0,
-      notes: '',
-    });
-    setOpen(false);
+    onOpenChange(false);
   };
   
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="gap-2">
-          <Plus className="w-4 h-4" />
-          Nova Viagem
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Registrar Viagem</DialogTitle>
+          <DialogTitle>Editar Viagem</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
@@ -160,7 +163,7 @@ export const TripForm = () => {
               <Input
                 id="weight"
                 type="number"
-                step="0.1"
+                step="0.01"
                 value={formData.weight}
                 onChange={(e) => setFormData({ ...formData, weight: parseFloat(e.target.value) || 0 })}
                 placeholder="0 = vazio"
@@ -183,9 +186,9 @@ export const TripForm = () => {
           <Button 
             type="submit" 
             className="w-full" 
-            disabled={createTrip.isPending || !formData.trip_type || !formData.vehicle_id || !formData.driver_id}
+            disabled={updateTrip.isPending || !formData.trip_type || !formData.vehicle_id || !formData.driver_id}
           >
-            {createTrip.isPending ? 'Salvando...' : 'Registrar Viagem'}
+            {updateTrip.isPending ? 'Salvando...' : 'Salvar Alterações'}
           </Button>
         </form>
       </DialogContent>
