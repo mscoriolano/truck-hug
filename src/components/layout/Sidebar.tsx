@@ -13,7 +13,8 @@ import {
   Fuel,
   Trophy,
   LogOut,
-  RotateCcw
+  RotateCcw,
+  Book
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ const navItems = [
 
 const bottomItems = [
   { icon: Bell, label: 'Alertas', path: '/alertas' },
+  { icon: Book, label: 'Guia de Uso', path: '/guia' },
 ];
 
 export function Sidebar({ className }: SidebarProps) {

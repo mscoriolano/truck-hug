@@ -21,6 +21,10 @@ export const TireForm = () => {
     current_mileage: 0,
     max_mileage: 80000,
     status: 'good' as const,
+    tread_depth: null as number | null,
+    min_tread_depth: 1.6,
+    warning_tread_depth: 3.0,
+    good_tread_depth: 5.0,
   });
   
   const createTire = useCreateTire();
@@ -36,10 +40,22 @@ export const TireForm = () => {
       current_mileage: vehicle?.mileage || 0,
     });
   };
+
+  // Calcula status baseado no sulco
+  const calculateStatusByTread = (depth: number | null): 'good' | 'warning' | 'critical' => {
+    if (depth === null) return 'good';
+    if (depth <= formData.min_tread_depth) return 'critical';
+    if (depth <= formData.warning_tread_depth) return 'warning';
+    return 'good';
+  };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await createTire.mutateAsync(formData);
+    const status = formData.tread_depth !== null 
+      ? calculateStatusByTread(formData.tread_depth) 
+      : formData.status;
+    
+    await createTire.mutateAsync({ ...formData, status });
     setFormData({
       vehicle_id: '',
       vehicle_plate: '',
@@ -51,6 +67,10 @@ export const TireForm = () => {
       current_mileage: 0,
       max_mileage: 80000,
       status: 'good',
+      tread_depth: null,
+      min_tread_depth: 1.6,
+      warning_tread_depth: 3.0,
+      good_tread_depth: 5.0,
     });
     setOpen(false);
   };
@@ -174,6 +194,63 @@ export const TireForm = () => {
               />
             </div>
           </div>
+
+          {/* Seção de Sulco */}
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-sm font-medium text-foreground mb-3">Medição de Sulco (mm)</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="tread_depth">Sulco Atual (mm)</Label>
+                <Input
+                  id="tread_depth"
+                  type="number"
+                  step="0.1"
+                  placeholder="Ex: 8.0"
+                  value={formData.tread_depth ?? ''}
+                  onChange={(e) => setFormData({ 
+                    ...formData, 
+                    tread_depth: e.target.value ? parseFloat(e.target.value) : null 
+                  })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="good_tread_depth">Limite Bom (≥mm)</Label>
+                <Input
+                  id="good_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.good_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, good_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div className="space-y-2">
+                <Label htmlFor="warning_tread_depth">Limite Atenção (≥mm)</Label>
+                <Input
+                  id="warning_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.warning_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, warning_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="min_tread_depth">Limite Crítico (≤mm)</Label>
+                <Input
+                  id="min_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.min_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, min_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              O status será calculado automaticamente com base no sulco informado.
+            </p>
+          </div>
+
           <Button type="submit" className="w-full" disabled={createTire.isPending}>
             {createTire.isPending ? 'Salvando...' : 'Cadastrar'}
           </Button>

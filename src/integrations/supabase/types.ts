@@ -369,49 +369,61 @@ export type Database = {
           brand: string
           created_at: string
           current_mileage: number
+          good_tread_depth: number | null
           id: string
           install_date: string
           install_mileage: number
           last_inspection: string
           max_mileage: number
+          min_tread_depth: number | null
           model: string
           position: string
           status: string
+          tread_depth: number | null
           updated_at: string
           vehicle_id: string
           vehicle_plate: string
+          warning_tread_depth: number | null
         }
         Insert: {
           brand: string
           created_at?: string
           current_mileage: number
+          good_tread_depth?: number | null
           id?: string
           install_date: string
           install_mileage: number
           last_inspection?: string
           max_mileage: number
+          min_tread_depth?: number | null
           model: string
           position: string
           status?: string
+          tread_depth?: number | null
           updated_at?: string
           vehicle_id: string
           vehicle_plate: string
+          warning_tread_depth?: number | null
         }
         Update: {
           brand?: string
           created_at?: string
           current_mileage?: number
+          good_tread_depth?: number | null
           id?: string
           install_date?: string
           install_mileage?: number
           last_inspection?: string
           max_mileage?: number
+          min_tread_depth?: number | null
           model?: string
           position?: string
           status?: string
+          tread_depth?: number | null
           updated_at?: string
           vehicle_id?: string
           vehicle_plate?: string
+          warning_tread_depth?: number | null
         }
         Relationships: [
           {
