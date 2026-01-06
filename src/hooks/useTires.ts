@@ -17,6 +17,10 @@ export interface Tire {
   last_inspection: string;
   created_at: string;
   updated_at: string;
+  tread_depth: number | null;
+  min_tread_depth: number | null;
+  warning_tread_depth: number | null;
+  good_tread_depth: number | null;
 }
 
 export interface CreateTireInput {
@@ -30,6 +34,10 @@ export interface CreateTireInput {
   current_mileage: number;
   max_mileage: number;
   status?: 'good' | 'warning' | 'critical' | 'replaced';
+  tread_depth?: number | null;
+  min_tread_depth?: number;
+  warning_tread_depth?: number;
+  good_tread_depth?: number;
 }
 
 export const useTires = () => {

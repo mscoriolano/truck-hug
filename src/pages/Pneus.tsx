@@ -175,6 +175,32 @@ const Pneus = () => {
                   
                   <p className="text-sm text-foreground mb-2">{tire.brand} {tire.model}</p>
                   
+                  {/* Exibe sulco se preenchido */}
+                  {tire.tread_depth !== null && (
+                    <div className="mb-3 p-2 rounded-lg bg-secondary">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">Sulco</span>
+                        <span className={cn(
+                          "font-bold",
+                          tire.tread_depth <= (tire.min_tread_depth ?? 1.6) ? "text-destructive" :
+                          tire.tread_depth <= (tire.warning_tread_depth ?? 3.0) ? "text-warning" : "text-success"
+                        )}>
+                          {tire.tread_depth.toFixed(1)} mm
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+                        <div 
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            tire.tread_depth <= (tire.min_tread_depth ?? 1.6) ? "bg-destructive" :
+                            tire.tread_depth <= (tire.warning_tread_depth ?? 3.0) ? "bg-warning" : "bg-success"
+                          )}
+                          style={{ width: `${Math.min((tire.tread_depth / 10) * 100, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Rodado</span>

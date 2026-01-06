@@ -25,6 +25,10 @@ export const TireEditForm = ({ tire, open, onOpenChange }: TireEditFormProps) =>
     current_mileage: 0,
     max_mileage: 80000,
     status: 'good' as 'good' | 'warning' | 'critical' | 'replaced',
+    tread_depth: null as number | null,
+    min_tread_depth: 1.6,
+    warning_tread_depth: 3.0,
+    good_tread_depth: 5.0,
   });
   
   const updateTire = useUpdateTire();
@@ -43,6 +47,10 @@ export const TireEditForm = ({ tire, open, onOpenChange }: TireEditFormProps) =>
         current_mileage: tire.current_mileage,
         max_mileage: tire.max_mileage,
         status: tire.status,
+        tread_depth: tire.tread_depth,
+        min_tread_depth: tire.min_tread_depth ?? 1.6,
+        warning_tread_depth: tire.warning_tread_depth ?? 3.0,
+        good_tread_depth: tire.good_tread_depth ?? 5.0,
       });
     }
   }, [tire]);
@@ -55,12 +63,26 @@ export const TireEditForm = ({ tire, open, onOpenChange }: TireEditFormProps) =>
       vehicle_plate: vehicle?.plate || '',
     });
   };
+
+  // Calcula status baseado no sulco
+  const calculateStatusByTread = (depth: number | null): 'good' | 'warning' | 'critical' => {
+    if (depth === null) return formData.status === 'replaced' ? 'replaced' as any : 'good';
+    if (depth <= formData.min_tread_depth) return 'critical';
+    if (depth <= formData.warning_tread_depth) return 'warning';
+    return 'good';
+  };
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Se o status não for "replaced", calcula com base no sulco
+    const status = formData.status === 'replaced' 
+      ? 'replaced' 
+      : (formData.tread_depth !== null ? calculateStatusByTread(formData.tread_depth) : formData.status);
+    
     await updateTire.mutateAsync({
       id: tire.id,
       ...formData,
+      status,
     });
     onOpenChange(false);
   };
@@ -197,6 +219,63 @@ export const TireEditForm = ({ tire, open, onOpenChange }: TireEditFormProps) =>
               />
             </div>
           </div>
+
+          {/* Seção de Sulco */}
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-sm font-medium text-foreground mb-3">Medição de Sulco (mm)</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="tread_depth">Sulco Atual (mm)</Label>
+                <Input
+                  id="tread_depth"
+                  type="number"
+                  step="0.1"
+                  placeholder="Ex: 8.0"
+                  value={formData.tread_depth ?? ''}
+                  onChange={(e) => setFormData({ 
+                    ...formData, 
+                    tread_depth: e.target.value ? parseFloat(e.target.value) : null 
+                  })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="good_tread_depth">Limite Bom (≥mm)</Label>
+                <Input
+                  id="good_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.good_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, good_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div className="space-y-2">
+                <Label htmlFor="warning_tread_depth">Limite Atenção (≥mm)</Label>
+                <Input
+                  id="warning_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.warning_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, warning_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="min_tread_depth">Limite Crítico (≤mm)</Label>
+                <Input
+                  id="min_tread_depth"
+                  type="number"
+                  step="0.1"
+                  value={formData.min_tread_depth}
+                  onChange={(e) => setFormData({ ...formData, min_tread_depth: parseFloat(e.target.value) })}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              O status será calculado automaticamente com base no sulco informado (exceto se marcado como "Substituído").
+            </p>
+          </div>
+
           <Button type="submit" className="w-full" disabled={updateTire.isPending}>
             {updateTire.isPending ? 'Salvando...' : 'Salvar Alterações'}
           </Button>
