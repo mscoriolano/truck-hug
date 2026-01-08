@@ -50,6 +50,150 @@ export type Database = {
         }
         Relationships: []
       }
+      delivery_receipts: {
+        Row: {
+          created_at: string
+          delivery_date: string
+          driver_id: string
+          driver_name: string
+          files: string[] | null
+          id: string
+          notes: string | null
+          recipient_name: string | null
+          trip_id: string
+          updated_at: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          delivery_date?: string
+          driver_id: string
+          driver_name: string
+          files?: string[] | null
+          id?: string
+          notes?: string | null
+          recipient_name?: string | null
+          trip_id: string
+          updated_at?: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          delivery_date?: string
+          driver_id?: string
+          driver_name?: string
+          files?: string[] | null
+          id?: string
+          notes?: string | null
+          recipient_name?: string | null
+          trip_id?: string
+          updated_at?: string
+          vehicle_plate?: string
+        }
+        Relationships: []
+      }
+      driver_expense_claims: {
+        Row: {
+          admin_notes: string | null
+          amount: number
+          created_at: string
+          description: string
+          driver_id: string
+          driver_name: string
+          expense_date: string
+          expense_type: string
+          id: string
+          receipts: string[] | null
+          status: string
+          trip_id: string | null
+          updated_at: string
+          vehicle_id: string | null
+          vehicle_plate: string | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          amount: number
+          created_at?: string
+          description: string
+          driver_id: string
+          driver_name: string
+          expense_date?: string
+          expense_type: string
+          id?: string
+          receipts?: string[] | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Update: {
+          admin_notes?: string | null
+          amount?: number
+          created_at?: string
+          description?: string
+          driver_id?: string
+          driver_name?: string
+          expense_date?: string
+          expense_type?: string
+          id?: string
+          receipts?: string[] | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Relationships: []
+      }
+      driver_maintenance_requests: {
+        Row: {
+          admin_notes: string | null
+          category: string
+          created_at: string
+          description: string
+          driver_id: string
+          driver_name: string
+          id: string
+          photos: string[] | null
+          status: string
+          updated_at: string
+          urgency: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          category: string
+          created_at?: string
+          description: string
+          driver_id: string
+          driver_name: string
+          id?: string
+          photos?: string[] | null
+          status?: string
+          updated_at?: string
+          urgency?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          admin_notes?: string | null
+          category?: string
+          created_at?: string
+          description?: string
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          photos?: string[] | null
+          status?: string
+          updated_at?: string
+          urgency?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: []
+      }
       driver_scores: {
         Row: {
           avg_consumption: number | null
@@ -113,6 +257,48 @@ export type Database = {
           total_km?: number | null
           total_score?: number | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      driver_tire_reports: {
+        Row: {
+          condition: string
+          created_at: string
+          description: string | null
+          driver_id: string
+          driver_name: string
+          id: string
+          photos: string[] | null
+          tire_position: string
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          condition: string
+          created_at?: string
+          description?: string | null
+          driver_id: string
+          driver_name: string
+          id?: string
+          photos?: string[] | null
+          tire_position: string
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          condition?: string
+          created_at?: string
+          description?: string | null
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          photos?: string[] | null
+          tire_position?: string
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
         }
         Relationships: []
       }
