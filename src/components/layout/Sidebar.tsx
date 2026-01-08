@@ -14,7 +14,8 @@ import {
   Trophy,
   LogOut,
   RotateCcw,
-  Book
+  Book,
+  UserCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ const navItems = [
 ];
 
 const bottomItems = [
+  { icon: UserCircle, label: 'Portal Motorista', path: '/portal-motorista' },
   { icon: Bell, label: 'Alertas', path: '/alertas' },
   { icon: Book, label: 'Guia de Uso', path: '/guia' },
 ];
