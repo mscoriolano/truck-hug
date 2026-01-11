@@ -356,6 +356,33 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       fuel_entries: {
         Row: {
           created_at: string
@@ -519,6 +546,152 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      monthly_costs: {
+        Row: {
+          amount: number
+          category_id: string | null
+          category_name: string
+          cost_type: string
+          created_at: string
+          id: string
+          month: number
+          notes: string | null
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          amount?: number
+          category_id?: string | null
+          category_name: string
+          cost_type: string
+          created_at?: string
+          id?: string
+          month: number
+          notes?: string | null
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          amount?: number
+          category_id?: string | null
+          category_name?: string
+          cost_type?: string
+          created_at?: string
+          id?: string
+          month?: number
+          notes?: string | null
+          updated_at?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_costs_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "expense_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monthly_performance: {
+        Row: {
+          accumulated_result: number
+          availability_percentage: number | null
+          average_freight_per_ton: number
+          cost_avoided: number
+          created_at: string
+          external_freight_cost: number
+          fixed_cost: number
+          id: string
+          invoiced_weight: number
+          month: number
+          notes: string | null
+          result: number
+          target_compliance_percentage: number | null
+          total_insourcing_cost: number
+          updated_at: string
+          variable_cost: number
+          year: number
+        }
+        Insert: {
+          accumulated_result?: number
+          availability_percentage?: number | null
+          average_freight_per_ton?: number
+          cost_avoided?: number
+          created_at?: string
+          external_freight_cost?: number
+          fixed_cost?: number
+          id?: string
+          invoiced_weight?: number
+          month: number
+          notes?: string | null
+          result?: number
+          target_compliance_percentage?: number | null
+          total_insourcing_cost?: number
+          updated_at?: string
+          variable_cost?: number
+          year: number
+        }
+        Update: {
+          accumulated_result?: number
+          availability_percentage?: number | null
+          average_freight_per_ton?: number
+          cost_avoided?: number
+          created_at?: string
+          external_freight_cost?: number
+          fixed_cost?: number
+          id?: string
+          invoiced_weight?: number
+          month?: number
+          notes?: string | null
+          result?: number
+          target_compliance_percentage?: number | null
+          total_insourcing_cost?: number
+          updated_at?: string
+          variable_cost?: number
+          year?: number
+        }
+        Relationships: []
+      }
+      operational_phases: {
+        Row: {
+          created_at: string
+          description: string | null
+          end_date: string | null
+          id: string
+          is_active: boolean
+          name: string
+          start_date: string
+          target_availability: number | null
+          target_cost_per_ton: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          start_date: string
+          target_availability?: number | null
+          target_cost_per_ton?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          end_date?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          start_date?: string
+          target_availability?: number | null
+          target_cost_per_ton?: number | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -699,6 +872,30 @@ export type Database = {
           id?: string
           role?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      vehicle_types: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
         }
         Relationships: []
       }
