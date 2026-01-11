@@ -17,6 +17,7 @@ import Gamificacao from "./pages/Gamificacao";
 import Viagens from "./pages/Viagens";
 import Guia from "./pages/Guia";
 import PortalMotorista from "./pages/PortalMotorista";
+import GestaoFinanceira from "./pages/GestaoFinanceira";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
           <Route path="/viagens" element={<ProtectedRoute><Viagens /></ProtectedRoute>} />
           <Route path="/guia" element={<ProtectedRoute><Guia /></ProtectedRoute>} />
           <Route path="/portal-motorista" element={<ProtectedRoute><PortalMotorista /></ProtectedRoute>} />
+          <Route path="/gestao-financeira" element={<ProtectedRoute><GestaoFinanceira /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
