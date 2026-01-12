@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
+import { TrucksControlSync } from '@/components/integration/TrucksControlSync';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useVehicles } from '@/hooks/useVehicles';
 import { useMaintenances } from '@/hooks/useMaintenances';
@@ -374,6 +375,9 @@ const Index = () => {
                 </div>
               )}
             </section>
+
+            {/* TrucksControl Integration */}
+            <TrucksControlSync />
 
             {/* Tires Section */}
             <section>
