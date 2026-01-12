@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, TrendingUp, TrendingDown, DollarSign, Truck, BarChart3, PieChart, Target } from 'lucide-react';
+import { Loader2, Plus, TrendingUp, TrendingDown, DollarSign, Truck, BarChart3, PieChart, Target, Upload } from 'lucide-react';
+import { BulkImportDialog } from '@/components/import/BulkImportDialog';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart as RechartsPie, Pie, Cell, AreaChart, Area } from 'recharts';
 import {
   useMonthlyCosts,
@@ -54,6 +55,7 @@ export default function GestaoFinanceira() {
 
   // Form states
   const [newCost, setNewCost] = useState({
+    year: currentYear,
     month: 1,
     category_name: '',
     cost_type: 'FIXO' as 'FIXO' | 'VARIAVEL' | 'OUTROS',
@@ -62,6 +64,7 @@ export default function GestaoFinanceira() {
   });
 
   const [newPerformance, setNewPerformance] = useState({
+    year: currentYear,
     month: 1,
     total_insourcing_cost: 0,
     fixed_cost: 0,
@@ -153,7 +156,7 @@ export default function GestaoFinanceira() {
 
   const handleAddCost = async () => {
     await createCost.mutateAsync({
-      year: selectedYear,
+      year: newCost.year,
       month: newCost.month,
       category_name: newCost.category_name,
       cost_type: newCost.cost_type,
@@ -162,7 +165,7 @@ export default function GestaoFinanceira() {
       category_id: null,
     });
     setIsAddCostOpen(false);
-    setNewCost({ month: 1, category_name: '', cost_type: 'FIXO', amount: 0, notes: '' });
+    setNewCost({ year: currentYear, month: 1, category_name: '', cost_type: 'FIXO', amount: 0, notes: '' });
   };
 
   const handleAddPerformance = async () => {
@@ -176,7 +179,7 @@ export default function GestaoFinanceira() {
     const prevAccumulated = prevPerformance ? Number(prevPerformance.accumulated_result) : 0;
 
     await upsertPerformance.mutateAsync({
-      year: selectedYear,
+      year: newPerformance.year,
       month: newPerformance.month,
       total_insourcing_cost: newPerformance.total_insourcing_cost,
       fixed_cost: newPerformance.fixed_cost,
@@ -193,6 +196,7 @@ export default function GestaoFinanceira() {
     });
     setIsAddPerformanceOpen(false);
     setNewPerformance({
+      year: currentYear,
       month: 1,
       total_insourcing_cost: 0,
       fixed_cost: 0,
@@ -233,7 +237,8 @@ export default function GestaoFinanceira() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <BulkImportDialog />
           <Dialog open={isAddCostOpen} onOpenChange={setIsAddCostOpen}>
             <DialogTrigger asChild>
               <Button variant="outline">
@@ -246,7 +251,20 @@ export default function GestaoFinanceira() {
                 <DialogTitle>Adicionar Custo Mensal</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>Ano</Label>
+                    <Select value={newCost.year.toString()} onValueChange={(v) => setNewCost(prev => ({ ...prev, year: Number(v) }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[2023, 2024, 2025, 2026].map(year => (
+                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div>
                     <Label>Mês</Label>
                     <Select value={newCost.month.toString()} onValueChange={(v) => setNewCost(prev => ({ ...prev, month: Number(v) }))}>
@@ -321,7 +339,20 @@ export default function GestaoFinanceira() {
                 <DialogTitle>Registrar Performance Mensal</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <Label>Ano</Label>
+                    <Select value={newPerformance.year.toString()} onValueChange={(v) => setNewPerformance(prev => ({ ...prev, year: Number(v) }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[2023, 2024, 2025, 2026].map(year => (
+                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div>
                     <Label>Mês</Label>
                     <Select value={newPerformance.month.toString()} onValueChange={(v) => setNewPerformance(prev => ({ ...prev, month: Number(v) }))}>
