@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, CheckCircle, XCircle, Clock, Truck, MapPin, Fuel } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, Clock, Truck, MapPin, Fuel, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -14,6 +14,7 @@ interface SyncResult {
   journeyEventsReceived: number;
   journeyEntriesCreated: number;
   message: string;
+  error?: string;
 }
 
 export function TrucksControlSync() {
@@ -33,9 +34,18 @@ export function TrucksControlSync() {
       }
 
       setLastSync(data as SyncResult);
-      toast.success('Sincronização concluída!', {
-        description: `${data.vehiclesUpdated} veículos atualizados, ${data.journeyEntriesCreated} eventos de jornada criados`,
-      });
+      
+      if (data.success) {
+        if (data.vehiclesReceived === 0 && data.journeyEventsReceived === 0) {
+          toast.warning('Sincronização concluída', {
+            description: 'Nenhum dado foi recebido da API. Verifique a URL base e endpoints.',
+          });
+        } else {
+          toast.success('Sincronização concluída!', {
+            description: `${data.vehiclesUpdated} veículos atualizados, ${data.journeyEntriesCreated} eventos criados`,
+          });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(message);
@@ -45,6 +55,13 @@ export function TrucksControlSync() {
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const getStatusBadge = () => {
+    if (!lastSync) return <Badge variant="secondary">Aguardando</Badge>;
+    if (!lastSync.success) return <Badge variant="destructive">Erro</Badge>;
+    if (lastSync.vehiclesReceived === 0) return <Badge variant="outline" className="border-yellow-500 text-yellow-600">Sem dados</Badge>;
+    return <Badge variant="default" className="bg-green-600">Conectado</Badge>;
   };
 
   return (
@@ -60,9 +77,7 @@ export function TrucksControlSync() {
               Integração com sistema de rastreamento
             </CardDescription>
           </div>
-          <Badge variant={lastSync?.success ? 'default' : 'secondary'}>
-            {lastSync?.success ? 'Conectado' : 'Aguardando'}
-          </Badge>
+          {getStatusBadge()}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -82,10 +97,14 @@ export function TrucksControlSync() {
         </div>
 
         {lastSync && (
-          <div className="rounded-lg bg-muted p-3 text-sm space-y-1">
+          <div className="rounded-lg bg-muted p-3 text-sm space-y-2">
             <div className="flex items-center gap-2">
               {lastSync.success ? (
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                lastSync.vehiclesReceived === 0 ? (
+                  <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                ) : (
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                )
               ) : (
                 <XCircle className="h-4 w-4 text-red-500" />
               )}
@@ -94,14 +113,37 @@ export function TrucksControlSync() {
             <p className="text-muted-foreground">
               {new Date(lastSync.timestamp).toLocaleString('pt-BR')}
             </p>
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <div>
-                <span className="text-muted-foreground">Veículos:</span>{' '}
-                <span className="font-medium">{lastSync.vehiclesUpdated}</span>
+            
+            {lastSync.vehiclesReceived === 0 && lastSync.success && (
+              <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-yellow-700 dark:text-yellow-400 text-xs">
+                <p className="font-medium">⚠️ API respondeu sem dados</p>
+                <p className="mt-1">Possíveis causas:</p>
+                <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                  <li>URL base incorreta para sua conta</li>
+                  <li>Endpoints da API diferentes</li>
+                  <li>Credenciais válidas mas sem permissão</li>
+                </ul>
               </div>
-              <div>
-                <span className="text-muted-foreground">Eventos:</span>{' '}
-                <span className="font-medium">{lastSync.journeyEntriesCreated}</span>
+            )}
+            
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="text-center p-2 bg-background rounded">
+                <div className="text-lg font-bold">{lastSync.vehiclesReceived}</div>
+                <div className="text-xs text-muted-foreground">Veículos Recebidos</div>
+              </div>
+              <div className="text-center p-2 bg-background rounded">
+                <div className="text-lg font-bold">{lastSync.journeyEventsReceived}</div>
+                <div className="text-xs text-muted-foreground">Eventos Recebidos</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="text-center p-2 bg-primary/10 rounded">
+                <div className="text-lg font-bold text-primary">{lastSync.vehiclesUpdated}</div>
+                <div className="text-xs text-muted-foreground">Atualizados no Sistema</div>
+              </div>
+              <div className="text-center p-2 bg-primary/10 rounded">
+                <div className="text-lg font-bold text-primary">{lastSync.journeyEntriesCreated}</div>
+                <div className="text-xs text-muted-foreground">Eventos Criados</div>
               </div>
             </div>
           </div>
