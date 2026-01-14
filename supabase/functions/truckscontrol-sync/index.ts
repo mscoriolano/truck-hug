@@ -22,7 +22,28 @@ type AttemptLog = {
   contentType: string | null;
   wasZip: boolean;
   preview: string;
+  truncated?: boolean;
   error?: string;
+};
+
+type DebugPayload = {
+  requestXml?: string;
+  requestXmlMasked?: string;
+  responses?: Array<{
+    url: string;
+    status: number;
+    ok: boolean;
+    contentType: string | null;
+    wasZip: boolean;
+    truncated: boolean;
+    bodyPreview: string;
+  }>;
+};
+
+type InputBody = {
+  alterados?: boolean;
+  debug?: boolean;
+  includeSensitive?: boolean;
 };
 
 function parseXmlValue(xml: string, tagName: string): string | null {
@@ -44,9 +65,23 @@ function parseXmlArray(xml: string, itemTagName: string): string[] {
   return items;
 }
 
-function buildVehicleRequestXml(user: string, password: string): string {
+function escapeXml(value: string): string {
+  // Evita String.prototype.replaceAll para compatibilidade
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function buildVehicleRequestXml(user: string, password: string, alterados?: boolean): string {
   // Conforme documentação TrucksControl
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestVeiculo>\n  <login>${user}</login>\n  <senha>${password}</senha>\n</RequestVeiculo>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestVeiculo>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>${alterados ? "\\n  <alterados>1</alterados>" : ""}\n</RequestVeiculo>`;
+}
+
+function maskPasswordInXml(xml: string): string {
+  return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
 }
 
 function bytesPreview(bytes: Uint8Array, max = 24): string {
@@ -82,12 +117,67 @@ function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boo
   return { text: strFromU8(bytes), wasZip: false };
 }
 
+async function readBodyLimited(response: Response, maxBytes = 2_000_000): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  const body = response.body;
+  if (!body) return { bytes: new Uint8Array(), truncated: false };
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+
+    if (total + value.length > maxBytes) {
+      const remaining = Math.max(0, maxBytes - total);
+      if (remaining > 0) chunks.push(value.slice(0, remaining));
+      total = maxBytes;
+      truncated = true;
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore
+      }
+      break;
+    }
+
+    chunks.push(value);
+    total += value.length;
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+
+  return { bytes: out, truncated };
+}
+
+async function safeJson(req: Request): Promise<InputBody> {
+  try {
+    const ct = req.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) return {};
+    return (await req.json()) as InputBody;
+  } catch {
+    return {};
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    const input = await safeJson(req);
+    const includeSensitive = Boolean(input.includeSensitive);
+    const debugEnabled = Boolean(input.debug);
+
     const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
     const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -126,6 +216,7 @@ serve(async (req) => {
     const xmlRequest = buildVehicleRequestXml(
       TRUCKSCONTROL_USER,
       TRUCKSCONTROL_PASSWORD,
+      input.alterados,
     );
 
     let selectedUrl: string | null = null;
@@ -133,8 +224,19 @@ serve(async (req) => {
     const attempts: AttemptLog[] = [];
     let lastApiError: string | null = null;
 
+    const debug: DebugPayload | undefined = debugEnabled
+      ? {
+          requestXml: includeSensitive ? xmlRequest : undefined,
+          requestXmlMasked: maskPasswordInXml(xmlRequest),
+          responses: [],
+        }
+      : undefined;
+
     for (const url of webserviceUrls) {
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+
         const response = await fetch(url, {
           method: "POST",
           headers: {
@@ -143,16 +245,19 @@ serve(async (req) => {
             Accept: "text/xml, application/xml, */*",
           },
           body: xmlRequest,
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
 
         const contentType = response.headers.get("content-type");
-        const buf = new Uint8Array(await response.arrayBuffer());
-        const decoded = decodeTrucksControlBody(buf);
+
+        // IMPORTANTE: NÃO usar response.arrayBuffer(), pois pode estourar memória em respostas grandes.
+        const limited = await readBodyLimited(response, 2_000_000);
+        const decoded = decodeTrucksControlBody(limited.bytes);
         const responseText = decoded.text;
 
         const preview = responseText
           ? responseText.slice(0, 500)
-          : `<<empty body>> bytes=${buf.length} hex=${bytesPreview(buf)}`;
+          : `<<empty body>> bytes=${limited.bytes.length} hex=${bytesPreview(limited.bytes)}`;
 
         attempts.push({
           url,
@@ -161,7 +266,20 @@ serve(async (req) => {
           contentType,
           wasZip: decoded.wasZip,
           preview,
+          truncated: limited.truncated,
         });
+
+        if (debug?.responses) {
+          debug.responses.push({
+            url,
+            status: response.status,
+            ok: response.ok,
+            contentType,
+            wasZip: decoded.wasZip,
+            truncated: limited.truncated,
+            bodyPreview: responseText ? responseText.slice(0, 50_000) : preview,
+          });
+        }
 
         if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
           const msg =
@@ -172,15 +290,13 @@ serve(async (req) => {
           lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
         }
 
-        if (
-          responseText.includes("<ResponseVeiculo>") ||
-          responseText.includes("<Veiculo>")
-        ) {
+        if (responseText.includes("<ResponseVeiculo>") || responseText.includes("<Veiculo>")) {
           selectedUrl = url;
           rawXml = responseText;
           break;
         }
       } catch (e) {
+        const errMsg = String(e);
         attempts.push({
           url,
           status: 0,
@@ -188,8 +304,20 @@ serve(async (req) => {
           contentType: null,
           wasZip: false,
           preview: "",
-          error: String(e),
+          truncated: false,
+          error: errMsg,
         });
+        if (debug?.responses) {
+          debug.responses.push({
+            url,
+            status: 0,
+            ok: false,
+            contentType: null,
+            wasZip: false,
+            truncated: false,
+            bodyPreview: "",
+          });
+        }
       }
     }
 
@@ -242,6 +370,7 @@ serve(async (req) => {
       debug: {
         urlUsed: selectedUrl || "none",
         attempts,
+        ...(debugEnabled ? { xml: debug } : {}),
       },
     };
 

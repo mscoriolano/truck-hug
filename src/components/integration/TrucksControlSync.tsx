@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, CheckCircle, XCircle, Clock, Truck, MapPin, Fuel, AlertTriangle } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, Clock, Truck, MapPin, Fuel, AlertTriangle, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 interface SyncResult {
   success: boolean;
@@ -24,29 +26,62 @@ interface SyncResult {
       contentType: string | null;
       wasZip: boolean;
       preview: string;
+      truncated?: boolean;
       error?: string;
     }>;
+    xml?: {
+      requestXml?: string;
+      requestXmlMasked?: string;
+      responses?: Array<{
+        url: string;
+        status: number;
+        ok: boolean;
+        contentType: string | null;
+        wasZip: boolean;
+        truncated: boolean;
+        bodyPreview: string;
+      }>;
+    };
   };
+}
+
+function downloadTextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function TrucksControlSync() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(false);
+  const [includeSensitive, setIncludeSensitive] = useState(false);
 
   const handleSync = async () => {
     setIsSyncing(true);
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('truckscontrol-sync');
+      const { data, error: fnError } = await supabase.functions.invoke('truckscontrol-sync', {
+        body: {
+          debug: debugMode,
+          includeSensitive,
+        },
+      });
 
       if (fnError) {
         throw fnError;
       }
 
       setLastSync(data as SyncResult);
-      
+
       if (data.success) {
         if (data.vehiclesReceived === 0 && data.journeyEventsReceived === 0) {
           toast.warning('Sincronização concluída', {
@@ -72,8 +107,95 @@ export function TrucksControlSync() {
   const getStatusBadge = () => {
     if (!lastSync) return <Badge variant="secondary">Aguardando</Badge>;
     if (!lastSync.success) return <Badge variant="destructive">Erro</Badge>;
-    if (lastSync.vehiclesReceived === 0) return <Badge variant="outline" className="border-yellow-500 text-yellow-600">Sem dados</Badge>;
-    return <Badge variant="default" className="bg-green-600">Conectado</Badge>;
+    if (lastSync.vehiclesReceived === 0)
+      return (
+        <Badge variant="outline" className="border-yellow-500 text-yellow-600">
+          Sem dados
+        </Badge>
+      );
+    return (
+      <Badge variant="default" className="bg-green-600">
+        Conectado
+      </Badge>
+    );
+  };
+
+  const canDownload = useMemo(() => {
+    return Boolean(lastSync?.debug?.xml?.requestXmlMasked || lastSync?.debug?.xml?.responses?.length);
+  }, [lastSync]);
+
+  const buildSupportBundle = () => {
+    const ts = lastSync?.timestamp
+      ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
+      : new Date().toISOString().replace(/:/g, '-');
+    const request = includeSensitive
+      ? lastSync?.debug?.xml?.requestXml
+      : lastSync?.debug?.xml?.requestXmlMasked;
+
+    const responses = lastSync?.debug?.xml?.responses ?? [];
+
+    const content = [
+      `# TrucksControl - Debug Bundle`,
+      `timestamp: ${lastSync?.timestamp ?? '—'}`,
+      `success: ${String(lastSync?.success)}`,
+      `message: ${lastSync?.message ?? '—'}`,
+      `error: ${lastSync?.error ?? '—'}`,
+      `urlUsed: ${lastSync?.debug?.urlUsed ?? '—'}`,
+      '',
+      '## REQUEST XML',
+      request ?? '(não coletado - ative Modo Debug e sincronize novamente)',
+      '',
+      '## RESPONSES (preview)',
+      responses.length
+        ? responses
+            .map((r, i) =>
+              [
+                `--- Response ${i + 1} ---`,
+                `url: ${r.url}`,
+                `status: ${r.status}`,
+                `ok: ${String(r.ok)}`,
+                `content-type: ${r.contentType ?? '—'}`,
+                `zip: ${String(r.wasZip)}`,
+                `truncated: ${String(r.truncated)}`,
+                '',
+                r.bodyPreview,
+                '',
+              ].join('\n'),
+            )
+            .join('\n')
+        : '(nenhuma resposta coletada)',
+      '',
+      '## ATTEMPTS (resumo)',
+      (lastSync?.debug?.attempts ?? []).length
+        ? (lastSync?.debug?.attempts ?? [])
+            .map((a) =>
+              `${a.url} | status=${a.status} | ok=${a.ok} | zip=${a.wasZip} | truncated=${String(a.truncated ?? false)} | content-type=${a.contentType ?? '—'} | error=${a.error ?? ''}`,
+            )
+            .join('\n')
+        : '(sem tentativas)',
+      '',
+    ].join('\n');
+
+    downloadTextFile(`truckscontrol-debug-${ts}.txt`, content);
+  };
+
+  const downloadRequestXml = () => {
+    const ts = lastSync?.timestamp
+      ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
+      : new Date().toISOString().replace(/:/g, '-');
+    const xml = includeSensitive
+      ? lastSync?.debug?.xml?.requestXml
+      : lastSync?.debug?.xml?.requestXmlMasked;
+
+    downloadTextFile(`truckscontrol-request-${ts}.xml`, xml || '');
+  };
+
+  const downloadFirstResponse = () => {
+    const ts = lastSync?.timestamp
+      ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
+      : new Date().toISOString().replace(/:/g, '-');
+    const r = lastSync?.debug?.xml?.responses?.[0];
+    downloadTextFile(`truckscontrol-response-${ts}.xml`, r?.bodyPreview || '');
   };
 
   return (
@@ -85,9 +207,7 @@ export function TrucksControlSync() {
               <Truck className="h-5 w-5" />
               TrucksControl
             </CardTitle>
-            <CardDescription>
-              Integração com sistema de rastreamento
-            </CardDescription>
+            <CardDescription>Integração com sistema de rastreamento</CardDescription>
           </div>
           {getStatusBadge()}
         </div>
@@ -108,8 +228,49 @@ export function TrucksControlSync() {
           </div>
         </div>
 
+        <div className="rounded-lg border border-border p-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Switch checked={debugMode} onCheckedChange={setDebugMode} id="tc-debug" />
+                <Label htmlFor="tc-debug">Modo Debug</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Coleta e permite baixar o XML bruto (requisição/resposta) para enviar ao suporte.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={includeSensitive}
+                onCheckedChange={setIncludeSensitive}
+                id="tc-sensitive"
+                disabled={!debugMode}
+              />
+              <Label htmlFor="tc-sensitive" className={!debugMode ? 'text-muted-foreground' : ''}>
+                Incluir credenciais
+              </Label>
+            </div>
+          </div>
+
+          {debugMode && canDownload ? (
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Button variant="secondary" onClick={buildSupportBundle} className="w-full sm:w-auto">
+                <Download className="mr-2 h-4 w-4" />
+                Baixar pacote p/ suporte
+              </Button>
+              <Button variant="outline" onClick={downloadRequestXml} className="w-full sm:w-auto">
+                Baixar XML requisição
+              </Button>
+              <Button variant="outline" onClick={downloadFirstResponse} className="w-full sm:w-auto">
+                Baixar XML resposta
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
         {lastSync && (
-          <div className="rounded-lg bg-muted p-3 text-sm space-y-2">
+          <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
             <div className="flex items-center gap-2">
               {lastSync.success ? (
                 lastSync.vehiclesReceived === 0 ? (
@@ -123,13 +284,9 @@ export function TrucksControlSync() {
               <span className="font-medium">Última sincronização</span>
             </div>
 
-            <p className="text-muted-foreground">
-              {new Date(lastSync.timestamp).toLocaleString('pt-BR')}
-            </p>
+            <p className="text-muted-foreground">{new Date(lastSync.timestamp).toLocaleString('pt-BR')}</p>
 
-            <p className={lastSync.success ? "text-muted-foreground" : "text-destructive"}>
-              {lastSync.message}
-            </p>
+            <p className={lastSync.success ? 'text-muted-foreground' : 'text-destructive'}>{lastSync.message}</p>
 
             {!lastSync.success && lastSync.debug?.attempts?.length ? (
               <div className="mt-2 rounded bg-background p-2 text-xs">
@@ -141,14 +298,13 @@ export function TrucksControlSync() {
                   {lastSync.debug.attempts.map((a, idx) => (
                     <div key={idx} className="rounded border border-border p-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-medium break-all">{a.url}</span>
+                        <span className="break-all font-medium">{a.url}</span>
                         <span className="text-muted-foreground">
                           status {a.status} • {a.ok ? 'ok' : 'falha'} • {a.wasZip ? 'zip' : 'texto'}
+                          {a.truncated ? ' • truncado' : ''}
                         </span>
                       </div>
-                      <div className="mt-1 text-muted-foreground">
-                        content-type: {a.contentType ?? '—'}
-                      </div>
+                      <div className="mt-1 text-muted-foreground">content-type: {a.contentType ?? '—'}</div>
                       {a.error ? (
                         <pre className="mt-1 whitespace-pre-wrap text-destructive">{a.error}</pre>
                       ) : (
@@ -160,22 +316,22 @@ export function TrucksControlSync() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <div className="text-center p-2 bg-background rounded">
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="rounded bg-background p-2 text-center">
                 <div className="text-lg font-bold">{lastSync.vehiclesReceived}</div>
                 <div className="text-xs text-muted-foreground">Veículos Recebidos</div>
               </div>
-              <div className="text-center p-2 bg-background rounded">
+              <div className="rounded bg-background p-2 text-center">
                 <div className="text-lg font-bold">{lastSync.journeyEventsReceived}</div>
                 <div className="text-xs text-muted-foreground">Eventos Recebidos</div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div className="text-center p-2 bg-primary/10 rounded">
+              <div className="rounded bg-primary/10 p-2 text-center">
                 <div className="text-lg font-bold text-primary">{lastSync.vehiclesUpdated}</div>
                 <div className="text-xs text-muted-foreground">Atualizados no Sistema</div>
               </div>
-              <div className="text-center p-2 bg-primary/10 rounded">
+              <div className="rounded bg-primary/10 p-2 text-center">
                 <div className="text-lg font-bold text-primary">{lastSync.journeyEntriesCreated}</div>
                 <div className="text-xs text-muted-foreground">Eventos Criados</div>
               </div>
@@ -193,11 +349,7 @@ export function TrucksControlSync() {
           </div>
         )}
 
-        <Button 
-          onClick={handleSync} 
-          disabled={isSyncing}
-          className="w-full"
-        >
+        <Button onClick={handleSync} disabled={isSyncing} className="w-full">
           {isSyncing ? (
             <>
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -211,10 +363,9 @@ export function TrucksControlSync() {
           )}
         </Button>
 
-        <p className="text-xs text-muted-foreground text-center">
-          A sincronização automática ocorre a cada 5 minutos
-        </p>
+        <p className="text-center text-xs text-muted-foreground">A sincronização automática ocorre a cada 5 minutos</p>
       </CardContent>
     </Card>
   );
 }
+
