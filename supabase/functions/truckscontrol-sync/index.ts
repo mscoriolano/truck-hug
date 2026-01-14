@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2?deno";
+import { strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -232,94 +232,118 @@ serve(async (req) => {
         }
       : undefined;
 
-    for (const url of webserviceUrls) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15_000);
+    console.log("[truckscontrol-sync] start", {
+      ts: new Date().toISOString(),
+      debugEnabled,
+      alterados: Boolean(input.alterados),
+    });
 
+    const fetchWithTimeout = async (url: string, timeoutMs: number) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
         const response = await fetch(url, {
           method: "POST",
           headers: {
-            // Docs indicam text/xml
             "Content-Type": "text/xml; charset=UTF-8",
             Accept: "text/xml, application/xml, */*",
           },
           body: xmlRequest,
           signal: controller.signal,
-        }).finally(() => clearTimeout(timeout));
-
-        const contentType = response.headers.get("content-type");
-
-        // IMPORTANTE: NÃO usar response.arrayBuffer(), pois pode estourar memória em respostas grandes.
-        const limited = await readBodyLimited(response, 2_000_000);
-        const decoded = decodeTrucksControlBody(limited.bytes);
-        const responseText = decoded.text;
-
-        const preview = responseText
-          ? responseText.slice(0, 500)
-          : `<<empty body>> bytes=${limited.bytes.length} hex=${bytesPreview(limited.bytes)}`;
-
-        attempts.push({
-          url,
-          status: response.status,
-          ok: response.ok,
-          contentType,
-          wasZip: decoded.wasZip,
-          preview,
-          truncated: limited.truncated,
         });
+        return response;
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
 
-        if (debug?.responses) {
-          debug.responses.push({
+    // Execução em paralelo para evitar timeouts acumulados.
+    // Se uma URL estiver fora do ar, as outras ainda podem responder rápido.
+    const timeoutPerUrlMs = 4_000;
+
+    const results = await Promise.all(
+      webserviceUrls.map(async (url) => {
+        try {
+          const response = await fetchWithTimeout(url, timeoutPerUrlMs);
+          const contentType = response.headers.get("content-type");
+
+          // NÃO usar response.arrayBuffer() para evitar estouro de memória.
+          const limited = await readBodyLimited(response, 2_000_000);
+          const decoded = decodeTrucksControlBody(limited.bytes);
+          const responseText = decoded.text;
+
+          const preview = responseText
+            ? responseText.slice(0, 500)
+            : `<<empty body>> bytes=${limited.bytes.length} hex=${bytesPreview(limited.bytes)}`;
+
+          const attempt: AttemptLog = {
             url,
             status: response.status,
             ok: response.ok,
             contentType,
             wasZip: decoded.wasZip,
+            preview,
             truncated: limited.truncated,
-            bodyPreview: responseText ? responseText.slice(0, 50_000) : preview,
-          });
-        }
+          };
 
-        if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
-          const msg =
-            parseXmlValue(responseText, "erro") ||
-            parseXmlValue(responseText, "Erro") ||
-            "Erro retornado pela TrucksControl";
-          const codigo = parseXmlValue(responseText, "codigo");
-          lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
-        }
+          if (debug?.responses) {
+            debug.responses.push({
+              url,
+              status: response.status,
+              ok: response.ok,
+              contentType,
+              wasZip: decoded.wasZip,
+              truncated: limited.truncated,
+              bodyPreview: responseText ? responseText.slice(0, 50_000) : preview,
+            });
+          }
 
-        if (responseText.includes("<ResponseVeiculo>") || responseText.includes("<Veiculo>")) {
-          selectedUrl = url;
-          rawXml = responseText;
-          break;
-        }
-      } catch (e) {
-        const errMsg = String(e);
-        attempts.push({
-          url,
-          status: 0,
-          ok: false,
-          contentType: null,
-          wasZip: false,
-          preview: "",
-          truncated: false,
-          error: errMsg,
-        });
-        if (debug?.responses) {
-          debug.responses.push({
+          return { attempt, responseText };
+        } catch (e) {
+          const attempt: AttemptLog = {
             url,
             status: 0,
             ok: false,
             contentType: null,
             wasZip: false,
+            preview: "",
             truncated: false,
-            bodyPreview: "",
-          });
+            error: String(e),
+          };
+
+          return { attempt, responseText: "" };
         }
+      }),
+    );
+
+    for (const r of results) {
+      attempts.push(r.attempt);
+
+      const responseText = r.responseText;
+      if (!responseText) continue;
+
+      // Captura erro retornado
+      if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
+        const msg =
+          parseXmlValue(responseText, "erro") ||
+          parseXmlValue(responseText, "Erro") ||
+          "Erro retornado pela TrucksControl";
+        const codigo = parseXmlValue(responseText, "codigo");
+        lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
+      }
+
+      // Primeiro XML válido vence
+      if (!rawXml && (responseText.includes("<ResponseVeiculo>") || responseText.includes("<Veiculo>"))) {
+        selectedUrl = r.attempt.url;
+        rawXml = responseText;
       }
     }
+
+    console.log("[truckscontrol-sync] finished", {
+      selectedUrl,
+      vehiclesXmlFound: Boolean(rawXml),
+      attempts: attempts.map((a) => ({ url: a.url, status: a.status, ok: a.ok, error: a.error })),
+    });
 
     const vehiclesData: TrucksControlVehicle[] = [];
 
