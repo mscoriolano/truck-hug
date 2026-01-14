@@ -15,6 +15,18 @@ interface SyncResult {
   journeyEntriesCreated: number;
   message: string;
   error?: string;
+  debug?: {
+    urlUsed?: string;
+    attempts?: Array<{
+      url: string;
+      status: number;
+      ok: boolean;
+      contentType: string | null;
+      wasZip: boolean;
+      preview: string;
+      error?: string;
+    }>;
+  };
 }
 
 export function TrucksControlSync() {
@@ -110,22 +122,44 @@ export function TrucksControlSync() {
               )}
               <span className="font-medium">Última sincronização</span>
             </div>
+
             <p className="text-muted-foreground">
               {new Date(lastSync.timestamp).toLocaleString('pt-BR')}
             </p>
-            
-            {lastSync.vehiclesReceived === 0 && lastSync.success && (
-              <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-yellow-700 dark:text-yellow-400 text-xs">
-                <p className="font-medium">⚠️ API respondeu sem dados</p>
-                <p className="mt-1">Possíveis causas:</p>
-                <ul className="list-disc ml-4 mt-1 space-y-0.5">
-                  <li>URL base incorreta para sua conta</li>
-                  <li>Endpoints da API diferentes</li>
-                  <li>Credenciais válidas mas sem permissão</li>
-                </ul>
+
+            <p className={lastSync.success ? "text-muted-foreground" : "text-destructive"}>
+              {lastSync.message}
+            </p>
+
+            {!lastSync.success && lastSync.debug?.attempts?.length ? (
+              <div className="mt-2 rounded bg-background p-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">Detalhes do erro (API)</span>
+                  <span className="text-muted-foreground">URL usada: {lastSync.debug?.urlUsed ?? '—'}</span>
+                </div>
+                <div className="mt-2 space-y-2">
+                  {lastSync.debug.attempts.map((a, idx) => (
+                    <div key={idx} className="rounded border border-border p-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium break-all">{a.url}</span>
+                        <span className="text-muted-foreground">
+                          status {a.status} • {a.ok ? 'ok' : 'falha'} • {a.wasZip ? 'zip' : 'texto'}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-muted-foreground">
+                        content-type: {a.contentType ?? '—'}
+                      </div>
+                      {a.error ? (
+                        <pre className="mt-1 whitespace-pre-wrap text-destructive">{a.error}</pre>
+                      ) : (
+                        <pre className="mt-1 whitespace-pre-wrap">{a.preview}</pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
-            
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2 mt-2">
               <div className="text-center p-2 bg-background rounded">
                 <div className="text-lg font-bold">{lastSync.vehiclesReceived}</div>
