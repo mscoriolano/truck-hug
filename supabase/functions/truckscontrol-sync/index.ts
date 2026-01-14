@@ -1,28 +1,42 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2?deno";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 interface TrucksControlVehicle {
   veiID?: string;
   placa?: string;
-  mot?: string;  // motorista
+  mot?: string; // motorista
   ident?: string;
 }
 
-// Parse XML response to extract data
+type AttemptLog = {
+  url: string;
+  status: number;
+  ok: boolean;
+  contentType: string | null;
+  wasZip: boolean;
+  preview: string;
+  error?: string;
+};
+
 function parseXmlValue(xml: string, tagName: string): string | null {
-  const regex = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, 'gi');
+  const regex = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, "gi");
   const match = regex.exec(xml);
   return match ? match[1].trim() : null;
 }
 
 function parseXmlArray(xml: string, itemTagName: string): string[] {
   const items: string[] = [];
-  const regex = new RegExp(`<${itemTagName}[^>]*>([\\s\\S]*?)</${itemTagName}>`, 'gi');
+  const regex = new RegExp(
+    `<${itemTagName}[^>]*>([\\s\\S]*?)</${itemTagName}>`,
+    "gi",
+  );
   let match;
   while ((match = regex.exec(xml)) !== null) {
     items.push(match[0]);
@@ -30,205 +44,219 @@ function parseXmlArray(xml: string, itemTagName: string): string[] {
   return items;
 }
 
-// Build XML request for vehicles - FORMATO CORRETO DA TRUCKSCONTROL
 function buildVehicleRequestXml(user: string, password: string): string {
-  return `<RequestVeiculo>
-<login>${user}</login>
-<senha>${password}</senha>
-</RequestVeiculo>`;
+  // Conforme documentação TrucksControl
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestVeiculo>\n  <login>${user}</login>\n  <senha>${password}</senha>\n</RequestVeiculo>`;
+}
+
+function bytesPreview(bytes: Uint8Array, max = 24): string {
+  const slice = bytes.slice(0, max);
+  return Array.from(slice)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+function looksLikeZip(bytes: Uint8Array): boolean {
+  // ZIP magic: 50 4B 03 04
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04
+  );
+}
+
+function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boolean } {
+  if (!bytes.length) return { text: "", wasZip: false };
+
+  if (looksLikeZip(bytes)) {
+    const unzipped = unzipSync(bytes);
+    const firstKey = Object.keys(unzipped)[0];
+    if (!firstKey) return { text: "", wasZip: true };
+    const fileBytes = unzipped[firstKey];
+    return { text: strFromU8(fileBytes), wasZip: true };
+  }
+
+  // Fallback: decode as UTF-8 string
+  return { text: strFromU8(bytes), wasZip: false };
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const TRUCKSCONTROL_USER = Deno.env.get('TRUCKSCONTROL_USER');
-    const TRUCKSCONTROL_PASSWORD = Deno.env.get('TRUCKSCONTROL_PASSWORD');
-    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
+    const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!TRUCKSCONTROL_USER || !TRUCKSCONTROL_PASSWORD) {
-      console.error('Missing TrucksControl credentials');
       return new Response(
-        JSON.stringify({ error: 'TrucksControl credentials not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: "TrucksControl credentials not configured",
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      console.error('Missing Supabase credentials');
       return new Response(
-        JSON.stringify({ error: 'Supabase credentials not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: "Backend credentials not configured",
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    console.log('========================================');
-    console.log('Starting TrucksControl sync...');
-    console.log('User:', TRUCKSCONTROL_USER);
-    console.log('========================================');
-
-    // WebService URLs provided by TrucksControl support
     const webserviceUrls = [
-      'https://webservice.newrastreamentoonline.com.br',
-      'http://webservice.newrastreamentoonline.com.br',
-      'http://webservice1.newrastreamentoonline.com.br',
+      "https://webservice.newrastreamentoonline.com.br",
+      "http://webservice.newrastreamentoonline.com.br",
+      "http://webservice1.newrastreamentoonline.com.br",
     ];
 
-    const xmlRequest = buildVehicleRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD);
-    console.log('XML Request:', xmlRequest);
+    const xmlRequest = buildVehicleRequestXml(
+      TRUCKSCONTROL_USER,
+      TRUCKSCONTROL_PASSWORD,
+    );
 
-    let vehicleResponse: { success: boolean; data: string; url: string } | null = null;
-    const attemptLog: { url: string; status: number; success: boolean; response: string }[] = [];
+    let selectedUrl: string | null = null;
+    let rawXml: string | null = null;
+    const attempts: AttemptLog[] = [];
+    let lastApiError: string | null = null;
 
-    // Try each URL
     for (const url of webserviceUrls) {
       try {
-        console.log(`\n>>> Trying URL: ${url}`);
-        
         const response = await fetch(url, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/xml',
-            'Accept': 'application/xml, text/xml, */*',
+            // Docs indicam text/xml
+            "Content-Type": "text/xml; charset=UTF-8",
+            Accept: "text/xml, application/xml, */*",
           },
           body: xmlRequest,
         });
 
-        const responseText = await response.text();
-        console.log(`Response status: ${response.status}`);
-        console.log(`Response: ${responseText.substring(0, 1000)}`);
+        const contentType = response.headers.get("content-type");
+        const buf = new Uint8Array(await response.arrayBuffer());
+        const decoded = decodeTrucksControlBody(buf);
+        const responseText = decoded.text;
 
-        attemptLog.push({
+        const preview = responseText
+          ? responseText.slice(0, 500)
+          : `<<empty body>> bytes=${buf.length} hex=${bytesPreview(buf)}`;
+
+        attempts.push({
           url,
           status: response.status,
-          success: false,
-          response: responseText.substring(0, 300),
+          ok: response.ok,
+          contentType,
+          wasZip: decoded.wasZip,
+          preview,
         });
 
-        // Check for successful response (contains ResponseVeiculo)
-        if (responseText.includes('<ResponseVeiculo>') || responseText.includes('<Veiculo>')) {
-          vehicleResponse = { success: true, data: responseText, url };
-          console.log(`\n*** SUCCESS with ${url} ***`);
-          attemptLog[attemptLog.length - 1].success = true;
+        if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
+          const msg =
+            parseXmlValue(responseText, "erro") ||
+            parseXmlValue(responseText, "Erro") ||
+            "Erro retornado pela TrucksControl";
+          const codigo = parseXmlValue(responseText, "codigo");
+          lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
+        }
+
+        if (
+          responseText.includes("<ResponseVeiculo>") ||
+          responseText.includes("<Veiculo>")
+        ) {
+          selectedUrl = url;
+          rawXml = responseText;
           break;
         }
-
-        // Check for error
-        if (responseText.includes('<erro>')) {
-          const errorMsg = parseXmlValue(responseText, 'erro');
-          console.log(`Error from API: ${errorMsg}`);
-        }
-      } catch (error) {
-        console.log(`Error for ${url}:`, error);
-        attemptLog.push({
+      } catch (e) {
+        attempts.push({
           url,
           status: 0,
-          success: false,
-          response: String(error),
+          ok: false,
+          contentType: null,
+          wasZip: false,
+          preview: "",
+          error: String(e),
         });
       }
     }
 
-    // Parse vehicle data from XML response
-    let vehiclesData: TrucksControlVehicle[] = [];
-    if (vehicleResponse?.success) {
-      const xml = vehicleResponse.data;
-      console.log('\n--- Parsing vehicle data ---');
-      
-      // Extract all <Veiculo> nodes
-      const vehicleNodes = parseXmlArray(xml, 'Veiculo');
-      console.log(`Found ${vehicleNodes.length} vehicle nodes`);
-      
+    const vehiclesData: TrucksControlVehicle[] = [];
+
+    if (rawXml) {
+      const vehicleNodes = parseXmlArray(rawXml, "Veiculo");
       for (const vehicleXml of vehicleNodes) {
         const vehicle: TrucksControlVehicle = {
-          veiID: parseXmlValue(vehicleXml, 'veiID') || undefined,
-          placa: parseXmlValue(vehicleXml, 'placa') || undefined,
-          mot: parseXmlValue(vehicleXml, 'mot') || undefined,
-          ident: parseXmlValue(vehicleXml, 'ident') || undefined,
+          veiID: parseXmlValue(vehicleXml, "veiID") || undefined,
+          placa: parseXmlValue(vehicleXml, "placa") || undefined,
+          mot: parseXmlValue(vehicleXml, "mot") || undefined,
+          ident: parseXmlValue(vehicleXml, "ident") || undefined,
         };
-        if (vehicle.placa) {
-          vehiclesData.push(vehicle);
-          console.log(`Parsed vehicle: ${vehicle.placa} (ID: ${vehicle.veiID}, Driver: ${vehicle.mot}, Ident: ${vehicle.ident})`);
-        }
+        if (vehicle.placa) vehiclesData.push(vehicle);
       }
-      console.log(`Total parsed: ${vehiclesData.length} vehicles`);
     }
 
-    // Update vehicles in database - just log them for now since we don't have mileage data
-    let vehiclesFound = 0;
+    // Mantém comportamento atual: apenas “match” por placa para confirmar integração
     let vehiclesMatched = 0;
     for (const vehicle of vehiclesData) {
-      const plate = vehicle.placa;
-      if (!plate) continue;
-      vehiclesFound++;
-
-      // Check if vehicle exists in our database
+      if (!vehicle.placa) continue;
       const { data: existingVehicle } = await supabase
-        .from('vehicles')
-        .select('id, plate, mileage')
-        .eq('plate', plate)
-        .single();
+        .from("vehicles")
+        .select("id, plate")
+        .eq("plate", vehicle.placa)
+        .maybeSingle();
 
-      if (existingVehicle) {
-        vehiclesMatched++;
-        console.log(`Vehicle ${plate} found in database`);
-        
-        // Update vehicle with TrucksControl ID info if we have ident
-        if (vehicle.ident) {
-          await supabase
-            .from('vehicles')
-            .update({ updated_at: new Date().toISOString() })
-            .eq('plate', plate);
-        }
-      } else {
-        console.log(`Vehicle ${plate} not in database`);
-      }
+      if (existingVehicle) vehiclesMatched++;
     }
 
-    // Prepare result
+    const success = Boolean(rawXml) && vehiclesData.length >= 0;
+
     const result = {
-      success: vehicleResponse?.success || false,
+      success,
       timestamp: new Date().toISOString(),
+
+      // Campos esperados no front (mantém compatibilidade)
       vehiclesReceived: vehiclesData.length,
-      vehiclesMatched: vehiclesMatched,
-      message: vehicleResponse?.success 
-        ? `Sincronização realizada! ${vehiclesData.length} veículos recebidos, ${vehiclesMatched} correspondem ao sistema.`
-        : 'Não foi possível obter dados da TrucksControl',
-      vehicles: vehiclesData.map(v => ({
-        placa: v.placa,
-        id: v.veiID,
-        motorista: v.mot,
-        identificacao: v.ident,
-      })),
+      vehiclesUpdated: vehiclesMatched,
+      journeyEventsReceived: 0,
+      journeyEntriesCreated: 0,
+
+      message: success
+        ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} correspondem ao seu cadastro.`
+        : `Falha ao obter veículos. ${lastApiError ? `Detalhe: ${lastApiError}` : ""}`.trim(),
+
+      error: success ? undefined : lastApiError || "Não foi possível obter dados",
+
       debug: {
-        urlUsed: vehicleResponse?.url || 'none',
-        attempts: attemptLog,
-      }
+        urlUsed: selectedUrl || "none",
+        attempts,
+      },
     };
 
-    console.log('\n========================================');
-    console.log('Sync completed:', JSON.stringify(result, null, 2));
-    console.log('========================================');
-
-    return new Response(
-      JSON.stringify(result),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
+    return new Response(JSON.stringify(result), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
-    console.error('Sync error:', error);
     return new Response(
-      JSON.stringify({ 
-        success: false, 
+      JSON.stringify({
+        success: false,
         error: String(error),
         timestamp: new Date().toISOString(),
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
+
