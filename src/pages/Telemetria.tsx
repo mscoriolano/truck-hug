@@ -3,7 +3,7 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useVehicleTelemetry, useTelemetryAlerts, useTelemetryHistory, useTripStatistics, useTelemetrySettings, useUpdateTelemetrySettings } from '@/hooks/useTelemetry';
+import { useVehicleTelemetry, useTelemetryAlerts, useTelemetrySettings, useUpdateTelemetrySettings } from '@/hooks/useTelemetry';
 import { useVehicles } from '@/hooks/useVehicles';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { 
   MapPin, AlertTriangle, Gauge, Activity, Settings, 
-  TrendingUp, Fuel, Zap, ChevronDown, ChevronUp,
-  Clock, Navigation, Car, Check
+  Fuel, Zap, ChevronDown, ChevronUp,
+  Check
 } from 'lucide-react';
+import { TelemetryReportExport } from '@/components/reports/TelemetryReportExport';
+import { NotificationSettings } from '@/components/notifications/NotificationSettings';
 import { SpeedGauge } from '@/components/telemetry/SpeedGauge';
 import { GForceGauge } from '@/components/telemetry/GForceGauge';
 import { FuelConsumptionGauge } from '@/components/telemetry/FuelConsumptionGauge';
@@ -138,13 +140,16 @@ const Telemetria = () => {
             </TabsTrigger>
           </TabsList>
 
-          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Settings className="w-4 h-4 mr-2" />
-                Configurações
-              </Button>
-            </DialogTrigger>
+          <div className="flex items-center gap-2">
+            <TelemetryReportExport />
+            <NotificationSettings />
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Configurações
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Configurações de Telemetria</DialogTitle>
@@ -230,6 +235,7 @@ const Telemetria = () => {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
 
         {/* Cards de resumo */}
