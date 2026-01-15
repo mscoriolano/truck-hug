@@ -13,6 +13,10 @@ export interface VehicleTelemetry {
   heading: number;
   ignition_on: boolean;
   odometer: number;
+  engine_hours?: number;
+  g_force_x?: number;
+  g_force_y?: number;
+  g_force_z?: number;
   gps_timestamp?: string;
   received_at: string;
   created_at: string;
