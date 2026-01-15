@@ -330,7 +330,8 @@ serve(async (req) => {
     });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    // Aumentado para 90s - webservice TrucksControl pode ser lento
+    const timeout = setTimeout(() => controller.abort(), 90_000);
 
     let response: Response | null = null;
     try {
