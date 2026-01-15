@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { gunzipSync, strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,7 +48,7 @@ type InputBody = {
   includeSensitive?: boolean;
 };
 
-// ============ XML Parsing Helpers ============
+// ============ XML helpers ============
 function parseXmlValue(xml: string, tagName: string): string | null {
   const regex = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, "gi");
   const match = regex.exec(xml);
@@ -76,11 +77,20 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-// ============ ZIP Decompression (pako via esm.sh) ============
-// TrucksControl returns ZIP files. We use pako for inflate.
-async function loadPako() {
-  const pako = await import("https://esm.sh/pako@2.1.0");
-  return pako;
+function buildVehicleRequestXml(user: string, password: string, alterados?: boolean): string {
+  // Conforme documentação TrucksControl
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestVeiculo>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>${alterados ? "\\n  <alterados>1</alterados>" : ""}\n</RequestVeiculo>`;
+}
+
+function maskPasswordInXml(xml: string): string {
+  return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
+}
+
+function bytesPreview(bytes: Uint8Array, max = 32): string {
+  const slice = bytes.slice(0, max);
+  return Array.from(slice)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join(" ");
 }
 
 function looksLikeZip(bytes: Uint8Array): boolean {
@@ -99,197 +109,77 @@ function looksLikeGzip(bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
 
-// Simple ZIP extraction: finds the first file in a ZIP and extracts it
-// ZIP format: https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
-async function extractFirstFileFromZip(zipBytes: Uint8Array, pako: any): Promise<string> {
-  // Local file header starts at offset 0
-  // Bytes 0-3: signature (50 4B 03 04)
-  // Bytes 8-9: compression method (0=store, 8=deflate)
-  // Bytes 18-21: compressed size (little endian)
-  // Bytes 22-25: uncompressed size (little endian)
-  // Bytes 26-27: filename length
-  // Bytes 28-29: extra field length
-  // Then: filename, extra field, file data
-  
-  if (zipBytes.length < 30) {
-    throw new Error("ZIP file too small");
-  }
-
-  const view = new DataView(zipBytes.buffer, zipBytes.byteOffset, zipBytes.byteLength);
-  
-  const compressionMethod = view.getUint16(8, true);
-  const compressedSize = view.getUint32(18, true);
-  const filenameLength = view.getUint16(26, true);
-  const extraFieldLength = view.getUint16(28, true);
-  
-  const dataOffset = 30 + filenameLength + extraFieldLength;
-  
-  if (dataOffset + compressedSize > zipBytes.length) {
-    throw new Error("ZIP file is truncated or corrupted");
-  }
-  
-  const compressedData = zipBytes.slice(dataOffset, dataOffset + compressedSize);
-  
-  let decompressedBytes: Uint8Array;
-  
-  if (compressionMethod === 0) {
-    // Stored (no compression)
-    decompressedBytes = compressedData;
-  } else if (compressionMethod === 8) {
-    // Deflate
-    decompressedBytes = pako.inflateRaw(compressedData);
-  } else {
-    throw new Error(`Unsupported ZIP compression method: ${compressionMethod}`);
-  }
-  
-  return new TextDecoder("utf-8").decode(decompressedBytes);
-}
-
-async function decodeTrucksControlBody(bytes: Uint8Array): Promise<{ text: string; wasZip: boolean }> {
+function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boolean } {
   if (!bytes.length) return { text: "", wasZip: false };
 
-  const pako = await loadPako();
-
+  // TrucksControl pode retornar zip/gzip (e o content-type às vezes vem errado)
   if (looksLikeZip(bytes)) {
     try {
-      const text = await extractFirstFileFromZip(bytes, pako);
-      return { text, wasZip: true };
+      const unzipped = unzipSync(bytes);
+      const firstKey = Object.keys(unzipped)[0];
+      if (!firstKey) return { text: "", wasZip: true };
+      return { text: strFromU8(unzipped[firstKey]), wasZip: true };
     } catch (e) {
-      console.error("[truckscontrol-sync] ZIP extraction failed:", e);
+      console.error("[truckscontrol-sync] unzipSync failed", String(e));
       return { text: "", wasZip: true };
     }
   }
 
   if (looksLikeGzip(bytes)) {
     try {
-      const decompressed = pako.ungzip(bytes);
-      return { text: new TextDecoder("utf-8").decode(decompressed), wasZip: true };
+      const out = gunzipSync(bytes);
+      return { text: strFromU8(out), wasZip: true };
     } catch (e) {
-      console.error("[truckscontrol-sync] GZIP decompression failed:", e);
+      console.error("[truckscontrol-sync] gunzipSync failed", String(e));
       return { text: "", wasZip: true };
     }
   }
 
-  // Plain text
-  return { text: new TextDecoder("utf-8").decode(bytes), wasZip: false };
+  return { text: strFromU8(bytes), wasZip: false };
 }
 
-// ============ Request XML Builder ============
-function buildVehicleRequestXml(user: string, password: string, alterados?: boolean): string {
-  // Conforme documentação TrucksControl - RequestVeiculo
-  const alteradosTag = alterados ? "\n  <alterados>1</alterados>" : "";
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<RequestVeiculo>
-  <login>${escapeXml(user)}</login>
-  <senha>${escapeXml(password)}</senha>${alteradosTag}
-</RequestVeiculo>`;
-}
+async function readBodyLimited(
+  response: Response,
+  maxBytes = 5_000_000,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  const body = response.body;
+  if (!body) return { bytes: new Uint8Array(), truncated: false };
 
-function maskPasswordInXml(xml: string): string {
-  return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
-}
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
 
-function bytesPreview(bytes: Uint8Array, max = 32): string {
-  const slice = bytes.slice(0, max);
-  return Array.from(slice)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join(" ");
-}
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
 
-// ============ HTTP Request with streaming body read ============
-async function fetchWithStreamingRead(
-  url: string, 
-  xmlRequest: string, 
-  timeoutMs: number,
-  maxBytes: number
-): Promise<{
-  status: number;
-  ok: boolean;
-  contentType: string | null;
-  bytes: Uint8Array;
-  truncated: boolean;
-  error?: string;
-}> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/xml; charset=UTF-8",
-        "Accept": "text/xml, application/xml, application/zip, application/gzip, */*",
-        "Accept-Encoding": "gzip, deflate",
-        "User-Agent": "FleetApp/1.0",
-      },
-      body: xmlRequest,
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeout);
-    
-    const contentType = response.headers.get("content-type");
-    
-    // Read body as stream to avoid memory issues
-    const body = response.body;
-    if (!body) {
-      return {
-        status: response.status,
-        ok: response.ok,
-        contentType,
-        bytes: new Uint8Array(),
-        truncated: false,
-      };
-    }
-    
-    const reader = body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    let truncated = false;
-    
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      
-      if (total + value.length > maxBytes) {
-        const remaining = Math.max(0, maxBytes - total);
-        if (remaining > 0) chunks.push(value.slice(0, remaining));
-        total = maxBytes;
-        truncated = true;
-        try { await reader.cancel(); } catch { /* ignore */ }
-        break;
+    if (total + value.length > maxBytes) {
+      const remaining = Math.max(0, maxBytes - total);
+      if (remaining > 0) chunks.push(value.slice(0, remaining));
+      total = maxBytes;
+      truncated = true;
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore
       }
-      
-      chunks.push(value);
-      total += value.length;
+      break;
     }
-    
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const c of chunks) {
-      bytes.set(c, offset);
-      offset += c.length;
-    }
-    
-    return {
-      status: response.status,
-      ok: response.ok,
-      contentType,
-      bytes,
-      truncated,
-    };
-  } catch (e) {
-    clearTimeout(timeout);
-    return {
-      status: 0,
-      ok: false,
-      contentType: null,
-      bytes: new Uint8Array(),
-      truncated: false,
-      error: String(e),
-    };
+
+    chunks.push(value);
+    total += value.length;
   }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+
+  return { bytes: out, truncated };
 }
 
 async function safeJson(req: Request): Promise<InputBody> {
@@ -302,7 +192,6 @@ async function safeJson(req: Request): Promise<InputBody> {
   }
 }
 
-// ============ Main Handler ============
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -342,7 +231,7 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Conforme documentação: apenas HTTPS é aceito desde 04/09/2023
+    // Documentação: HTTP não é aceito; usar apenas HTTPS
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
     const xmlRequest = buildVehicleRequestXml(
@@ -366,82 +255,84 @@ serve(async (req) => {
       url: webserviceUrl,
     });
 
-    // Single request to the official HTTPS endpoint
-    const timeoutMs = 30_000; // 30 seconds
-    const maxBytes = 5_000_000; // 5MB max
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
 
-    const result = await fetchWithStreamingRead(webserviceUrl, xmlRequest, timeoutMs, maxBytes);
-    
+    let response: Response | null = null;
+    try {
+      response = await fetch(webserviceUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml; charset=UTF-8",
+          Accept: "text/xml, application/xml, application/zip, application/gzip, */*",
+          "Accept-Encoding": "gzip, deflate",
+          "User-Agent": "FleetApp/1.0",
+        },
+        body: xmlRequest,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const contentType = response.headers.get("content-type");
+
+    const limited = await readBodyLimited(response, 5_000_000);
+    console.log("[truckscontrol-sync] response bytes preview:", bytesPreview(limited.bytes));
+
+    const decoded = decodeTrucksControlBody(limited.bytes);
+
     const attempt: AttemptLog = {
       url: webserviceUrl,
-      status: result.status,
-      ok: result.ok,
-      contentType: result.contentType,
-      wasZip: false,
-      preview: "",
-      truncated: result.truncated,
-      bodyLengthBytes: result.bytes.length,
-      error: result.error,
+      status: response.status,
+      ok: response.ok,
+      contentType,
+      wasZip: decoded.wasZip,
+      preview: decoded.text ? decoded.text.slice(0, 500) : "<<empty body>>",
+      truncated: limited.truncated,
+      bodyLengthBytes: limited.bytes.length,
     };
+
+    if (debug?.responses) {
+      debug.responses.push({
+        url: webserviceUrl,
+        status: response.status,
+        ok: response.ok,
+        contentType,
+        wasZip: decoded.wasZip,
+        truncated: limited.truncated,
+        bodyPreview: decoded.text ? decoded.text.slice(0, 50_000) : attempt.preview,
+        bodyLengthBytes: limited.bytes.length,
+      });
+    }
 
     let rawXml: string | null = null;
     let lastApiError: string | null = null;
 
-    if (result.error) {
-      attempt.error = result.error;
-      console.log("[truckscontrol-sync] fetch error:", result.error);
-    } else if (result.bytes.length > 0) {
-      // Check if it's compressed
-      const hexPreview = bytesPreview(result.bytes);
-      console.log("[truckscontrol-sync] response bytes preview:", hexPreview);
-      
-      const decoded = await decodeTrucksControlBody(result.bytes);
-      attempt.wasZip = decoded.wasZip;
-      attempt.preview = decoded.text.slice(0, 500);
-      
-      if (debug?.responses) {
-        debug.responses.push({
-          url: webserviceUrl,
-          status: result.status,
-          ok: result.ok,
-          contentType: result.contentType,
-          wasZip: decoded.wasZip,
-          truncated: result.truncated,
-          bodyPreview: decoded.text.slice(0, 50_000),
-          bodyLengthBytes: result.bytes.length,
-        });
-      }
-      
-      const responseText = decoded.text;
-      
-      // Check for API errors
-      if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
-        const msg =
-          parseXmlValue(responseText, "erro") ||
-          parseXmlValue(responseText, "Erro") ||
-          "Erro retornado pela TrucksControl";
-        const codigo = parseXmlValue(responseText, "codigo");
-        lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
-      }
-      
-      // Check for valid response
-      if (responseText.includes("<ResponseVeiculo>") || responseText.includes("<Veiculo>")) {
-        rawXml = responseText;
-      }
-    } else {
-      attempt.preview = "<<empty response body>>";
+    const responseText = decoded.text || "";
+
+    if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
+      const msg =
+        parseXmlValue(responseText, "erro") ||
+        parseXmlValue(responseText, "Erro") ||
+        "Erro retornado pela TrucksControl";
+      const codigo = parseXmlValue(responseText, "codigo");
+      lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
+    }
+
+    if (responseText.includes("<ResponseVeiculo>") || responseText.includes("<Veiculo>")) {
+      rawXml = responseText;
     }
 
     console.log("[truckscontrol-sync] finished", {
-      status: result.status,
-      ok: result.ok,
-      bytesReceived: result.bytes.length,
-      wasZip: attempt.wasZip,
+      status: response.status,
+      ok: response.ok,
+      bytesReceived: limited.bytes.length,
+      wasZip: decoded.wasZip,
       vehiclesXmlFound: Boolean(rawXml),
-      error: attempt.error || lastApiError,
+      error: lastApiError ?? null,
     });
 
-    // Parse vehicles from XML
     const vehiclesData: TrucksControlVehicle[] = [];
 
     if (rawXml) {
@@ -457,7 +348,6 @@ serve(async (req) => {
       }
     }
 
-    // Match with database
     let vehiclesMatched = 0;
     for (const vehicle of vehiclesData) {
       if (!vehicle.placa) continue;
@@ -472,31 +362,30 @@ serve(async (req) => {
 
     const success = Boolean(rawXml) && vehiclesData.length >= 0;
 
-    const responsePayload = {
-      success,
-      timestamp: new Date().toISOString(),
+    return new Response(
+      JSON.stringify({
+        success,
+        timestamp: new Date().toISOString(),
 
-      vehiclesReceived: vehiclesData.length,
-      vehiclesUpdated: vehiclesMatched,
-      journeyEventsReceived: 0,
-      journeyEntriesCreated: 0,
+        vehiclesReceived: vehiclesData.length,
+        vehiclesUpdated: vehiclesMatched,
+        journeyEventsReceived: 0,
+        journeyEntriesCreated: 0,
 
-      message: success
-        ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} correspondem ao seu cadastro.`
-        : `Falha ao obter veículos. ${lastApiError ? `Detalhe: ${lastApiError}` : ""}`.trim(),
+        message: success
+          ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} correspondem ao seu cadastro.`
+          : `Falha ao obter veículos. ${lastApiError ? `Detalhe: ${lastApiError}` : ""}`.trim(),
 
-      error: success ? undefined : lastApiError || attempt.error || "Não foi possível obter dados",
+        error: success ? undefined : lastApiError || "Não foi possível obter dados",
 
-      debug: {
-        urlUsed: webserviceUrl,
-        attempt,
-        ...(debugEnabled ? { xml: debug } : {}),
-      },
-    };
-
-    return new Response(JSON.stringify(responsePayload), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+        debug: {
+          urlUsed: webserviceUrl,
+          attempts: [attempt],
+          ...(debugEnabled ? { xml: debug } : {}),
+        },
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
     console.error("[truckscontrol-sync] unhandled error:", error);
     return new Response(
