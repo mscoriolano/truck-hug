@@ -19,6 +19,8 @@ import Guia from "./pages/Guia";
 import PortalMotorista from "./pages/PortalMotorista";
 import GestaoFinanceira from "./pages/GestaoFinanceira";
 import Telemetria from "./pages/Telemetria";
+import Metas from "./pages/Metas";
+import DashboardExecutivo from "./pages/DashboardExecutivo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -45,6 +47,8 @@ const App = () => (
           <Route path="/portal-motorista" element={<ProtectedRoute><PortalMotorista /></ProtectedRoute>} />
           <Route path="/gestao-financeira" element={<ProtectedRoute><GestaoFinanceira /></ProtectedRoute>} />
           <Route path="/telemetria" element={<ProtectedRoute><Telemetria /></ProtectedRoute>} />
+          <Route path="/metas" element={<ProtectedRoute><Metas /></ProtectedRoute>} />
+          <Route path="/dashboard-executivo" element={<ProtectedRoute><DashboardExecutivo /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

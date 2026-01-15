@@ -146,6 +146,62 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_goals: {
+        Row: {
+          achieved: boolean
+          bonus_amount: number
+          created_at: string
+          driver_id: string
+          driver_name: string
+          id: string
+          month: number
+          target_consumption: number
+          target_km: number
+          target_score: number
+          target_speed_violations: number
+          updated_at: string
+          year: number
+        }
+        Insert: {
+          achieved?: boolean
+          bonus_amount?: number
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          id?: string
+          month: number
+          target_consumption?: number
+          target_km?: number
+          target_score?: number
+          target_speed_violations?: number
+          updated_at?: string
+          year: number
+        }
+        Update: {
+          achieved?: boolean
+          bonus_amount?: number
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          month?: number
+          target_consumption?: number
+          target_km?: number
+          target_score?: number
+          target_speed_violations?: number
+          updated_at?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_goals_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_maintenance_requests: {
         Row: {
           admin_notes: string | null

@@ -12,6 +12,8 @@ const statusConfig = {
   driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
   resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
   off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
+  terminated: { label: 'Desligado', color: 'bg-destructive text-destructive-foreground' },
+  vacation: { label: 'Férias', color: 'bg-info text-info-foreground' },
 };
 
 export function DriverStatusCard({ driver }: DriverStatusCardProps) {
@@ -40,6 +42,8 @@ export function DriverStatusCard({ driver }: DriverStatusCardProps) {
             driver.status === 'available' && "bg-success",
             driver.status === 'resting' && "bg-warning",
             driver.status === 'off' && "bg-muted",
+            driver.status === 'terminated' && "bg-destructive",
+            driver.status === 'vacation' && "bg-info",
           )} />
         </div>
 

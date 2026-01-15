@@ -18,7 +18,7 @@ const entryTypeConfig = {
 };
 
 const Jornada = () => {
-  const [filter, setFilter] = useState<'all' | 'driving' | 'resting' | 'available' | 'off'>('all');
+  const [filter, setFilter] = useState<'all' | 'driving' | 'resting' | 'available' | 'off' | 'terminated' | 'vacation'>('all');
   const { data: drivers, isLoading: driversLoading } = useDrivers();
   const { data: journeyEntries, isLoading: entriesLoading, refetch } = useJourneyEntries();
 
@@ -33,7 +33,7 @@ const Jornada = () => {
     name: driver.name,
     phone: driver.phone,
     license: driver.license,
-    status: driver.status as 'available' | 'driving' | 'resting' | 'off',
+    status: driver.status as 'available' | 'driving' | 'resting' | 'off' | 'terminated' | 'vacation',
     currentVehicle: driver.current_vehicle || undefined,
     journeyStart: driver.journey_start ? new Date(driver.journey_start) : undefined,
     totalHoursToday: driver.total_hours_today || 0,
@@ -60,6 +60,8 @@ const Jornada = () => {
             { value: 'resting', label: 'Descansando' },
             { value: 'available', label: 'Disponíveis' },
             { value: 'off', label: 'Folga' },
+            { value: 'terminated', label: 'Desligados' },
+            { value: 'vacation', label: 'Férias' },
           ].map((option) => (
             <Button
               key={option.value}
