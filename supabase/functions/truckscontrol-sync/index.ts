@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { gunzipSync, strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2";
+import {
+  gunzipSync,
+  inflateSync,
+  strFromU8,
+} from "https://esm.sh/fflate@0.8.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,7 +81,11 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-function buildVehicleRequestXml(user: string, password: string, alterados?: boolean): string {
+function buildVehicleRequestXml(
+  user: string,
+  password: string,
+  alterados?: boolean,
+): string {
   // Conforme documentação TrucksControl
   return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestVeiculo>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>${alterados ? "\\n  <alterados>1</alterados>" : ""}\n</RequestVeiculo>`;
 }
@@ -109,18 +117,97 @@ function looksLikeGzip(bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 }
 
+function u16le(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function u32le(bytes: Uint8Array, offset: number): number {
+  return (
+    (bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)) >>> 0
+  );
+}
+
+/**
+ * Implementação enxuta e segura para extrair o 1º arquivo de um ZIP (caso típico do TrucksControl).
+ * Motivo: alguns ZIPs vêm com tamanhos 0xFFFFFFFF (data descriptor) e `unzipSync` tenta alocar um buffer gigantesco,
+ * causando: RangeError: Array buffer allocation failed.
+ */
+function unzipFirstFileFromZip(
+  zipBytes: Uint8Array,
+  opts?: { maxUnzippedBytes?: number },
+): Uint8Array {
+  const maxOut = opts?.maxUnzippedBytes ?? 5_000_000;
+
+  // Local file header signature: 0x04034b50
+  if (u32le(zipBytes, 0) !== 0x04034b50) {
+    throw new Error("ZIP inválido: assinatura do header não encontrada");
+  }
+
+  const flags = u16le(zipBytes, 6);
+  const compression = u16le(zipBytes, 8);
+  const nameLen = u16le(zipBytes, 26);
+  const extraLen = u16le(zipBytes, 28);
+
+  const compressedSize = u32le(zipBytes, 18);
+  const dataStart = 30 + nameLen + extraLen;
+  if (dataStart > zipBytes.length) {
+    throw new Error("ZIP inválido: offset de dados fora do buffer");
+  }
+
+  let dataEnd = 0;
+  const hasDataDescriptor = (flags & 0x0008) === 0x0008;
+
+  if (!hasDataDescriptor && compressedSize > 0) {
+    dataEnd = dataStart + compressedSize;
+    if (dataEnd > zipBytes.length) {
+      throw new Error("ZIP inválido: tamanho compactado excede o buffer");
+    }
+  } else {
+    // procurar data descriptor: [0x08074b50][crc32][csize][usize]
+    const sig0 = 0x50, sig1 = 0x4b, sig2 = 0x07, sig3 = 0x08;
+    let found = -1;
+    for (let i = dataStart; i + 16 <= zipBytes.length; i++) {
+      if (
+        zipBytes[i] === sig0 &&
+        zipBytes[i + 1] === sig1 &&
+        zipBytes[i + 2] === sig2 &&
+        zipBytes[i + 3] === sig3
+      ) {
+        found = i;
+        break;
+      }
+    }
+    dataEnd = found === -1 ? zipBytes.length : found;
+  }
+
+  const compressed = zipBytes.slice(dataStart, dataEnd);
+
+  if (compression === 0) {
+    if (compressed.length > maxOut) throw new Error("ZIP excedeu limite de bytes");
+    return compressed;
+  }
+
+  if (compression === 8) {
+    const out = inflateRawSync(compressed);
+    if (out.length > maxOut) throw new Error("ZIP excedeu limite de bytes");
+    return out;
+  }
+
+  throw new Error(`Método de compressão ZIP não suportado: ${compression}`);
+}
+
 function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boolean } {
   if (!bytes.length) return { text: "", wasZip: false };
 
-  // TrucksControl pode retornar zip/gzip (e o content-type às vezes vem errado)
   if (looksLikeZip(bytes)) {
     try {
-      const unzipped = unzipSync(bytes);
-      const firstKey = Object.keys(unzipped)[0];
-      if (!firstKey) return { text: "", wasZip: true };
-      return { text: strFromU8(unzipped[firstKey]), wasZip: true };
+      const unzipped = unzipFirstFileFromZip(bytes, { maxUnzippedBytes: 5_000_000 });
+      return { text: strFromU8(unzipped), wasZip: true };
     } catch (e) {
-      console.error("[truckscontrol-sync] unzipSync failed", String(e));
+      console.error("[truckscontrol-sync] unzip failed", String(e));
       return { text: "", wasZip: true };
     }
   }
