@@ -6,6 +6,19 @@ import {
   strFromU8,
 } from "https://esm.sh/fflate@0.8.2";
 
+// Para raw deflate (ZIP compression method 8), usamos inflateSync com raw option
+function inflateRawSync(data: Uint8Array): Uint8Array {
+  // fflate inflateSync com o segundo parâmetro como output buffer estimado
+  // Para raw deflate, precisamos usar a função de forma diferente
+  // Na verdade, fflate não tem inflateRawSync direto, mas podemos usar inflateSync
+  // com um wrapper que adiciona os bytes de header zlib
+  const zlibHeader = new Uint8Array(2 + data.length);
+  zlibHeader[0] = 0x78; // CMF (deflate, 32K window)
+  zlibHeader[1] = 0x9c; // FLG (default compression)
+  zlibHeader.set(data, 2);
+  return inflateSync(zlibHeader);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
