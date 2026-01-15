@@ -2,3 +2,6 @@ project_id = "eghqbrqyyszaubuwkrsb"
 
 [functions.truckscontrol-sync]
 verify_jwt = false
+
+[functions.truckscontrol-telemetry]
+verify_jwt = false

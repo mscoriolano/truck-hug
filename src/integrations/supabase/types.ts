@@ -302,6 +302,73 @@ export type Database = {
         }
         Relationships: []
       }
+      driver_vehicle_assignments: {
+        Row: {
+          assignment_code: string | null
+          created_at: string
+          driver_id: string
+          driver_name: string
+          end_time: string | null
+          id: string
+          is_active: boolean | null
+          start_time: string
+          trip_id: string | null
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          assignment_code?: string | null
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          end_time?: string | null
+          id?: string
+          is_active?: boolean | null
+          start_time?: string
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          assignment_code?: string | null
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          end_time?: string | null
+          id?: string
+          is_active?: boolean | null
+          start_time?: string
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_vehicle_assignments_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_vehicle_assignments_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_vehicle_assignments_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drivers: {
         Row: {
           ac: string | null
@@ -723,6 +790,219 @@ export type Database = {
         }
         Relationships: []
       }
+      telemetry_alerts: {
+        Row: {
+          acknowledged: boolean | null
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          alert_type: string
+          created_at: string
+          driver_id: string | null
+          driver_name: string | null
+          event_timestamp: string
+          g_force: number | null
+          id: string
+          idle_duration: number | null
+          latitude: number | null
+          location_name: string | null
+          longitude: number | null
+          message: string
+          severity: string
+          speed: number | null
+          speed_limit: number | null
+          title: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_type: string
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          event_timestamp?: string
+          g_force?: number | null
+          id?: string
+          idle_duration?: number | null
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          message: string
+          severity: string
+          speed?: number | null
+          speed_limit?: number | null
+          title: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          acknowledged?: boolean | null
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_type?: string
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          event_timestamp?: string
+          g_force?: number | null
+          id?: string
+          idle_duration?: number | null
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          message?: string
+          severity?: string
+          speed?: number | null
+          speed_limit?: number | null
+          title?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telemetry_alerts_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "telemetry_alerts_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      telemetry_history: {
+        Row: {
+          created_at: string
+          driver_id: string | null
+          driver_name: string | null
+          event_severity: string | null
+          event_type: string | null
+          g_force_x: number | null
+          g_force_y: number | null
+          g_force_z: number | null
+          gps_timestamp: string | null
+          heading: number | null
+          id: string
+          ignition_on: boolean | null
+          latitude: number | null
+          longitude: number | null
+          speed: number | null
+          trip_id: string | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          event_severity?: string | null
+          event_type?: string | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          gps_timestamp?: string | null
+          heading?: number | null
+          id?: string
+          ignition_on?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          speed?: number | null
+          trip_id?: string | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          event_severity?: string | null
+          event_type?: string | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          gps_timestamp?: string | null
+          heading?: number | null
+          id?: string
+          ignition_on?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          speed?: number | null
+          trip_id?: string | null
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telemetry_history_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "telemetry_history_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      telemetry_settings: {
+        Row: {
+          created_at: string
+          expected_consumption: number | null
+          hard_accel_threshold: number | null
+          hard_brake_threshold: number | null
+          hard_turn_threshold: number | null
+          id: string
+          idle_critical_minutes: number | null
+          idle_warning_minutes: number | null
+          operation_end_time: string | null
+          operation_start_time: string | null
+          speed_limit_highway: number | null
+          speed_limit_urban: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expected_consumption?: number | null
+          hard_accel_threshold?: number | null
+          hard_brake_threshold?: number | null
+          hard_turn_threshold?: number | null
+          id?: string
+          idle_critical_minutes?: number | null
+          idle_warning_minutes?: number | null
+          operation_end_time?: string | null
+          operation_start_time?: string | null
+          speed_limit_highway?: number | null
+          speed_limit_urban?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expected_consumption?: number | null
+          hard_accel_threshold?: number | null
+          hard_brake_threshold?: number | null
+          hard_turn_threshold?: number | null
+          id?: string
+          idle_critical_minutes?: number | null
+          idle_warning_minutes?: number | null
+          operation_end_time?: string | null
+          operation_start_time?: string | null
+          speed_limit_highway?: number | null
+          speed_limit_urban?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tires: {
         Row: {
           brand: string
@@ -787,6 +1067,103 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "tires_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trip_statistics: {
+        Row: {
+          avg_consumption_km_per_liter: number | null
+          avg_speed: number | null
+          created_at: string
+          driver_id: string | null
+          driver_name: string | null
+          driving_score: number | null
+          end_time: string | null
+          fuel_consumed_liters: number | null
+          hard_accels_count: number | null
+          hard_brakes_count: number | null
+          hard_turns_count: number | null
+          id: string
+          max_speed: number | null
+          start_time: string
+          time_over_speed_limit_minutes: number | null
+          total_distance_km: number | null
+          total_idle_time_minutes: number | null
+          total_stops: number | null
+          trip_id: string | null
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          avg_consumption_km_per_liter?: number | null
+          avg_speed?: number | null
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          driving_score?: number | null
+          end_time?: string | null
+          fuel_consumed_liters?: number | null
+          hard_accels_count?: number | null
+          hard_brakes_count?: number | null
+          hard_turns_count?: number | null
+          id?: string
+          max_speed?: number | null
+          start_time: string
+          time_over_speed_limit_minutes?: number | null
+          total_distance_km?: number | null
+          total_idle_time_minutes?: number | null
+          total_stops?: number | null
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          avg_consumption_km_per_liter?: number | null
+          avg_speed?: number | null
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          driving_score?: number | null
+          end_time?: string | null
+          fuel_consumed_liters?: number | null
+          hard_accels_count?: number | null
+          hard_brakes_count?: number | null
+          hard_turns_count?: number | null
+          id?: string
+          max_speed?: number | null
+          start_time?: string
+          time_over_speed_limit_minutes?: number | null
+          total_distance_km?: number | null
+          total_idle_time_minutes?: number | null
+          total_stops?: number | null
+          trip_id?: string | null
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_statistics_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_statistics_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_statistics_vehicle_id_fkey"
             columns: ["vehicle_id"]
             isOneToOne: false
             referencedRelation: "vehicles"
@@ -874,6 +1251,74 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      vehicle_telemetry: {
+        Row: {
+          created_at: string
+          engine_hours: number | null
+          g_force_x: number | null
+          g_force_y: number | null
+          g_force_z: number | null
+          gps_timestamp: string | null
+          heading: number | null
+          id: string
+          ignition_on: boolean | null
+          latitude: number | null
+          longitude: number | null
+          odometer: number | null
+          received_at: string
+          speed: number | null
+          truckscontrol_id: string | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          engine_hours?: number | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          gps_timestamp?: string | null
+          heading?: number | null
+          id?: string
+          ignition_on?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          odometer?: number | null
+          received_at?: string
+          speed?: number | null
+          truckscontrol_id?: string | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          engine_hours?: number | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          gps_timestamp?: string | null
+          heading?: number | null
+          id?: string
+          ignition_on?: boolean | null
+          latitude?: number | null
+          longitude?: number | null
+          odometer?: number | null
+          received_at?: string
+          speed?: number | null
+          truckscontrol_id?: string | null
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_telemetry_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vehicle_types: {
         Row: {
