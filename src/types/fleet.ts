@@ -4,7 +4,7 @@ export interface Driver {
   avatar?: string;
   phone: string;
   license: string;
-  status: 'available' | 'driving' | 'resting' | 'off';
+  status: 'available' | 'driving' | 'resting' | 'off' | 'terminated' | 'vacation';
   currentVehicle?: string;
   journeyStart?: Date;
   totalHoursToday: number;

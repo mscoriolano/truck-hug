@@ -17,7 +17,9 @@ import {
   Book,
   UserCircle,
   DollarSign,
-  Radio
+  Radio,
+  Target,
+  PieChart
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -30,6 +32,7 @@ interface SidebarProps {
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+  { icon: PieChart, label: 'Dashboard Executivo', path: '/dashboard-executivo' },
   { icon: Clock, label: 'Jornada', path: '/jornada' },
   { icon: Radio, label: 'Telemetria', path: '/telemetria' },
   { icon: Users, label: 'Motoristas', path: '/motoristas' },
@@ -40,6 +43,7 @@ const navItems = [
   { icon: RotateCcw, label: 'Viagens', path: '/viagens' },
   { icon: DollarSign, label: 'Gestão Financeira', path: '/gestao-financeira' },
   { icon: Trophy, label: 'Gamificação', path: '/gamificacao' },
+  { icon: Target, label: 'Metas', path: '/metas' },
 ];
 
 const bottomItems = [
