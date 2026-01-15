@@ -104,8 +104,18 @@ export function TrucksControlSync() {
     }
   };
 
+  // Detecta se é erro de rate limit (código 7)
+  const isRateLimitError = lastSync?.error?.includes('código 7') || lastSync?.error?.includes('tempo minimo');
+
   const getStatusBadge = () => {
     if (!lastSync) return <Badge variant="secondary">Aguardando</Badge>;
+    if (isRateLimitError) {
+      return (
+        <Badge variant="outline" className="border-amber-500 text-amber-600">
+          Aguarde
+        </Badge>
+      );
+    }
     if (!lastSync.success) return <Badge variant="destructive">Erro</Badge>;
     if (lastSync.vehiclesReceived === 0)
       return (
@@ -286,9 +296,22 @@ export function TrucksControlSync() {
 
             <p className="text-muted-foreground">{new Date(lastSync.timestamp).toLocaleString('pt-BR')}</p>
 
-            <p className={lastSync.success ? 'text-muted-foreground' : 'text-destructive'}>{lastSync.message}</p>
+            {isRateLimitError ? (
+              <div className="rounded-lg bg-amber-500/10 p-3 text-amber-700 dark:text-amber-400">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  <span className="font-medium">Limite de requisições atingido</span>
+                </div>
+                <p className="mt-1 text-sm">
+                  A API do TrucksControl possui um intervalo mínimo entre requisições. 
+                  Aguarde alguns minutos e tente novamente. A sincronização automática continuará funcionando normalmente.
+                </p>
+              </div>
+            ) : (
+              <p className={lastSync.success ? 'text-muted-foreground' : 'text-destructive'}>{lastSync.message}</p>
+            )}
 
-            {!lastSync.success && lastSync.debug?.attempts?.length ? (
+            {!lastSync.success && !isRateLimitError && lastSync.debug?.attempts?.length ? (
               <div className="mt-2 rounded bg-background p-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Detalhes do erro (API)</span>
