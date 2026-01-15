@@ -15,7 +15,7 @@ const statusConfig = {
 };
 
 export function DriverStatusCard({ driver }: DriverStatusCardProps) {
-  const status = statusConfig[driver.status];
+  const status = statusConfig[driver.status] || statusConfig.available;
   
   const formatHours = (hours: number) => {
     const h = Math.floor(hours);

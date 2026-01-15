@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
-import { useDriverScores } from '@/hooks/useDriverScores';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { useMaintenances } from '@/hooks/useMaintenances';
 import { useTires } from '@/hooks/useTires';
 import { useTrips } from '@/hooks/useTrips';
+import { useTripStatistics } from '@/hooks/useTripStatistics';
 import { Badge } from '@/components/ui/badge';
 import { 
   Loader2, 
@@ -19,7 +19,9 @@ import {
   Clock,
   Gauge,
   Star,
-  RotateCcw
+  RotateCcw,
+  Zap,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -72,15 +74,16 @@ const Gamificacao = () => {
   const { data: maintenances, isLoading: loadingMaint } = useMaintenances();
   const { data: tires, isLoading: loadingTires } = useTires();
   const { data: trips, isLoading: loadingTrips } = useTrips(startDate, endDate);
+  const { data: tripStats, isLoading: loadingStats } = useTripStatistics(startDate, endDate);
 
   const handleDateChange = (start?: Date, end?: Date) => {
     setStartDate(start);
     setEndDate(end);
   };
 
-  const isLoading = loadingDrivers || loadingFuel || loadingMaint || loadingTires || loadingTrips;
+  const isLoading = loadingDrivers || loadingFuel || loadingMaint || loadingTires || loadingTrips || loadingStats;
 
-  // Calcular pontuações por motorista
+  // Calcular pontuações por motorista usando dados reais de telemetria
   const driverPerformance = drivers?.filter(d => d.status !== 'terminated').map(driver => {
     // Abastecimentos do motorista no período
     const driverFuel = fuelEntries?.filter(f => f.driver_id === driver.id) || [];
@@ -104,14 +107,53 @@ const Gamificacao = () => {
       t.status === 'critical' || t.status === 'replaced'
     ).length || 0;
 
-    // Calcular scores (0-100)
-    const fuelScore = Math.min(100, Math.max(0, avgConsumption > 0 ? Math.round((avgConsumption / 4) * 100) : 50));
+    // Estatísticas de telemetria do motorista
+    const driverStats = tripStats?.filter(s => s.driver_id === driver.id) || [];
+    
+    // Calcular métricas de comportamento de direção
+    const totalHardBrakes = driverStats.reduce((acc, s) => acc + (s.hard_brakes_count || 0), 0);
+    const totalHardAccels = driverStats.reduce((acc, s) => acc + (s.hard_accels_count || 0), 0);
+    const totalHardTurns = driverStats.reduce((acc, s) => acc + (s.hard_turns_count || 0), 0);
+    const totalTimeOverLimit = driverStats.reduce((acc, s) => acc + (s.time_over_speed_limit_minutes || 0), 0);
+    const avgDrivingScore = driverStats.length > 0 
+      ? driverStats.reduce((acc, s) => acc + (s.driving_score || 0), 0) / driverStats.length 
+      : null;
+    const telemetryAvgSpeed = driverStats.length > 0
+      ? driverStats.reduce((acc, s) => acc + (s.avg_speed || 0), 0) / driverStats.length
+      : null;
+    const telemetryConsumption = driverStats.length > 0
+      ? driverStats.reduce((acc, s) => acc + (s.avg_consumption_km_per_liter || 0), 0) / driverStats.length
+      : null;
+    const totalTelemetryKm = driverStats.reduce((acc, s) => acc + (s.total_distance_km || 0), 0);
+
+    // Calcular scores (0-100) com dados reais
+    const fuelScore = telemetryConsumption 
+      ? Math.min(100, Math.max(0, Math.round(telemetryConsumption * 25))) // Meta: 4 km/L
+      : (avgConsumption > 0 ? Math.min(100, Math.max(0, Math.round((avgConsumption / 4) * 100))) : 50);
+    
     const tireScore = Math.max(0, 100 - (criticalTires * 15));
     const maintScore = Math.max(0, 100 - (correctiveMaint * 10));
     const journeyScore = driver.status === 'driving' || driver.status === 'available' ? 85 : 70;
-    const speedScore = 80 + Math.floor(Math.random() * 15); // Simulado
+    
+    // Score de velocidade baseado em tempo acima do limite e eventos
+    const speedPenalty = (totalTimeOverLimit * 0.5) + (totalHardAccels * 2);
+    const speedScore = avgDrivingScore !== null 
+      ? Math.round(avgDrivingScore) 
+      : Math.max(0, 100 - speedPenalty);
+    
+    // Score de G-Force (frenagens + acelerações bruscas + curvas)
+    const gForcePenalty = (totalHardBrakes * 3) + (totalHardAccels * 2) + (totalHardTurns * 2);
+    const gForceScore = Math.max(0, 100 - gForcePenalty);
 
-    const totalScore = Math.round((fuelScore + tireScore + maintScore + journeyScore + speedScore) / 5);
+    // Score total (agora inclui comportamento de direção)
+    const totalScore = Math.round(
+      (fuelScore * 0.2) + 
+      (tireScore * 0.1) + 
+      (maintScore * 0.1) + 
+      (journeyScore * 0.15) + 
+      (speedScore * 0.25) + 
+      (gForceScore * 0.2)
+    );
 
     return {
       id: driver.id,
@@ -122,13 +164,21 @@ const Gamificacao = () => {
       maintScore,
       journeyScore,
       speedScore,
+      gForceScore,
       totalScore,
-      avgConsumption: avgConsumption.toFixed(2),
-      totalKm,
+      avgConsumption: telemetryConsumption?.toFixed(2) || avgConsumption.toFixed(2),
+      totalKm: totalTelemetryKm > 0 ? totalTelemetryKm : totalKm,
       totalCycles,
       tireIncidents: criticalTires,
       correctiveMaint,
       abastecimentos: driverFuel.length,
+      // Novas métricas de telemetria
+      hardBrakes: totalHardBrakes,
+      hardAccels: totalHardAccels,
+      hardTurns: totalHardTurns,
+      timeOverLimit: totalTimeOverLimit,
+      avgSpeed: telemetryAvgSpeed?.toFixed(0),
+      tripsCount: driverStats.length,
     };
   }).sort((a, b) => b.totalScore - a.totalScore) || [];
 
@@ -178,16 +228,23 @@ const Gamificacao = () => {
                     <RotateCcw className="w-4 h-4" />
                     <span className="text-sm">{topPerformer.totalCycles.toFixed(1)} ciclos</span>
                   </div>
+                  {topPerformer.tripsCount > 0 && (
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <Gauge className="w-4 h-4" />
+                      <span className="text-sm">{topPerformer.tripsCount} viagens monitoradas</span>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="hidden md:block">
                 <ResponsiveContainer width={200} height={150}>
                   <RadarChart data={[
                     { metric: 'Combustível', value: topPerformer.fuelScore },
+                    { metric: 'Velocidade', value: topPerformer.speedScore },
+                    { metric: 'Força G', value: topPerformer.gForceScore },
                     { metric: 'Pneus', value: topPerformer.tireScore },
                     { metric: 'Manutenção', value: topPerformer.maintScore },
                     { metric: 'Jornada', value: topPerformer.journeyScore },
-                    { metric: 'Velocidade', value: topPerformer.speedScore },
                   ]}>
                     <PolarGrid stroke="hsl(var(--border))" />
                     <PolarAngleAxis 
@@ -207,14 +264,15 @@ const Gamificacao = () => {
           </div>
         )}
 
-        {/* Legenda de métricas */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {/* Legenda de métricas - atualizada com novas métricas */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
-            { icon: Fuel, label: 'Consumo', desc: 'Eficiência no combustível' },
+            { icon: Fuel, label: 'Consumo', desc: 'Eficiência combustível' },
+            { icon: Gauge, label: 'Velocidade', desc: 'Respeito aos limites' },
+            { icon: Zap, label: 'Força G', desc: 'Suavidade na direção' },
             { icon: CircleDot, label: 'Pneus', desc: 'Cuidado com pneus' },
             { icon: Wrench, label: 'Manutenção', desc: 'Evitar corretivas' },
-            { icon: Clock, label: 'Jornada', desc: 'Cumprimento de horários' },
-            { icon: Gauge, label: 'Velocidade', desc: 'Faixa verde do motor' },
+            { icon: Clock, label: 'Jornada', desc: 'Cumprimento horários' },
           ].map((item, i) => (
             <div key={i} className="rounded-lg bg-card border border-border p-3 text-center">
               <item.icon className="w-5 h-5 text-primary mx-auto mb-1" />
@@ -228,6 +286,7 @@ const Gamificacao = () => {
         <div className="rounded-xl border border-border overflow-hidden">
           <div className="bg-secondary p-4">
             <h3 className="font-semibold text-foreground">Ranking de Motoristas</h3>
+            <p className="text-sm text-muted-foreground">Inclui dados de telemetria em tempo real</p>
           </div>
           <div className="divide-y divide-border">
             {driverPerformance.map((driver, index) => {
@@ -255,25 +314,53 @@ const Gamificacao = () => {
                           {badge.label}
                         </Badge>
                       </div>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
                         <span>Média: {driver.avgConsumption} km/L</span>
                         <span>•</span>
-                        <span>{driver.totalKm.toLocaleString('pt-BR')} km</span>
+                        <span>{driver.totalKm.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} km</span>
                         <span>•</span>
                         <span>{driver.totalCycles.toFixed(1)} ciclos</span>
-                        <span>•</span>
-                        <span>{driver.abastecimentos} abast.</span>
+                        {driver.tripsCount > 0 && (
+                          <>
+                            <span>•</span>
+                            <span className="text-primary">{driver.tripsCount} viagens monitoradas</span>
+                          </>
+                        )}
                       </div>
+                      {/* Detalhes de telemetria */}
+                      {(driver.hardBrakes > 0 || driver.hardAccels > 0 || driver.timeOverLimit > 0) && (
+                        <div className="flex items-center gap-3 mt-1.5">
+                          {driver.hardBrakes > 0 && (
+                            <span className="text-xs text-warning flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              {driver.hardBrakes} frenagens
+                            </span>
+                          )}
+                          {driver.hardAccels > 0 && (
+                            <span className="text-xs text-warning flex items-center gap-1">
+                              <Zap className="w-3 h-3" />
+                              {driver.hardAccels} acelerações
+                            </span>
+                          )}
+                          {driver.timeOverLimit > 0 && (
+                            <span className="text-xs text-destructive flex items-center gap-1">
+                              <Gauge className="w-3 h-3" />
+                              {driver.timeOverLimit}min acima limite
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     
                     {/* Scores individuais */}
                     <div className="hidden lg:flex items-center gap-3">
                       {[
                         { label: 'Comb', value: driver.fuelScore },
+                        { label: 'Veloc', value: driver.speedScore },
+                        { label: 'G', value: driver.gForceScore },
                         { label: 'Pneus', value: driver.tireScore },
                         { label: 'Manut', value: driver.maintScore },
                         { label: 'Jorn', value: driver.journeyScore },
-                        { label: 'Veloc', value: driver.speedScore },
                       ].map((score, i) => (
                         <div key={i} className="text-center">
                           <p className="text-xs text-muted-foreground">{score.label}</p>
@@ -298,7 +385,7 @@ const Gamificacao = () => {
           </div>
         </div>
 
-        {/* Gráfico comparativo */}
+        {/* Gráfico comparativo - atualizado com nova métrica */}
         {driverPerformance.length > 0 && (
           <div className="rounded-xl bg-card border border-border p-5">
             <h3 className="font-semibold text-foreground mb-4">Comparativo de Performance</h3>
@@ -319,10 +406,11 @@ const Gamificacao = () => {
                   }}
                 />
                 <Bar dataKey="fuelScore" name="Combustível" fill="hsl(199 89% 48%)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="speedScore" name="Velocidade" fill="hsl(340 80% 60%)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="gForceScore" name="Força G" fill="hsl(280 80% 60%)" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="tireScore" name="Pneus" fill="hsl(142 76% 36%)" radius={[2, 2, 0, 0]} />
                 <Bar dataKey="maintScore" name="Manutenção" fill="hsl(45 93% 47%)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="journeyScore" name="Jornada" fill="hsl(280 80% 60%)" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="speedScore" name="Velocidade" fill="hsl(340 80% 60%)" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="journeyScore" name="Jornada" fill="hsl(220 80% 60%)" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
