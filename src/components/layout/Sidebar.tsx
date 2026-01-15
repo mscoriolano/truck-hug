@@ -16,7 +16,8 @@ import {
   RotateCcw,
   Book,
   UserCircle,
-  DollarSign
+  DollarSign,
+  Radio
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ interface SidebarProps {
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: Clock, label: 'Jornada', path: '/jornada' },
+  { icon: Radio, label: 'Telemetria', path: '/telemetria' },
   { icon: Users, label: 'Motoristas', path: '/motoristas' },
   { icon: Truck, label: 'Veículos', path: '/veiculos' },
   { icon: Wrench, label: 'Manutenções', path: '/manutencoes' },

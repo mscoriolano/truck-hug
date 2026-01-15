@@ -4,8 +4,10 @@ import { useTrips, useDeleteTrip, Trip } from '@/hooks/useTrips';
 import { TripForm } from '@/components/forms/TripForm';
 import { TripEditForm } from '@/components/forms/TripEditForm';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
+import { DriverVehicleAssignment } from '@/components/driver-portal/DriverVehicleAssignment';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Truck, 
   Loader2, 
@@ -16,7 +18,8 @@ import {
   ArrowDownLeft,
   Package,
   RotateCcw,
-  User
+  User,
+  Link2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -109,56 +112,68 @@ const Viagens = () => {
       title="Viagens" 
       subtitle="Controle de viagens e ciclos"
     >
-      <div className="space-y-6 animate-fade-in">
-        {/* Stats - Peso exibido sem conversão (já está em toneladas) */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Truck className="w-5 h-5 text-primary" />
-              <span className="text-sm text-muted-foreground">Total Viagens</span>
+      <Tabs defaultValue="viagens" className="space-y-6 animate-fade-in">
+        <TabsList>
+          <TabsTrigger value="viagens">
+            <Truck className="w-4 h-4 mr-2" />
+            Viagens
+          </TabsTrigger>
+          <TabsTrigger value="vinculacao">
+            <Link2 className="w-4 h-4 mr-2" />
+            Vinculação Motorista-Veículo
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="viagens" className="space-y-6">
+          {/* Stats - Peso exibido sem conversão (já está em toneladas) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Truck className="w-5 h-5 text-primary" />
+                <span className="text-sm text-muted-foreground">Total Viagens</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">{stats.totalTrips}</p>
             </div>
-            <p className="text-2xl font-bold text-foreground">{stats.totalTrips}</p>
-          </div>
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <RotateCcw className="w-5 h-5 text-success" />
-              <span className="text-sm text-muted-foreground">Total Ciclos</span>
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <RotateCcw className="w-5 h-5 text-success" />
+                <span className="text-sm text-muted-foreground">Total Ciclos</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">{stats.totalCycles.toFixed(1)}</p>
             </div>
-            <p className="text-2xl font-bold text-foreground">{stats.totalCycles.toFixed(1)}</p>
-          </div>
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <ArrowUpRight className="w-5 h-5 text-warning" />
-              <span className="text-sm text-muted-foreground">Escoamentos</span>
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ArrowUpRight className="w-5 h-5 text-warning" />
+                <span className="text-sm text-muted-foreground">Escoamentos</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">{stats.escoamento}</p>
             </div>
-            <p className="text-2xl font-bold text-foreground">{stats.escoamento}</p>
-          </div>
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <ArrowDownLeft className="w-5 h-5 text-info" />
-              <span className="text-sm text-muted-foreground">Abastecimentos</span>
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ArrowDownLeft className="w-5 h-5 text-info" />
+                <span className="text-sm text-muted-foreground">Abastecimentos</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">{stats.abastecimento}</p>
             </div>
-            <p className="text-2xl font-bold text-foreground">{stats.abastecimento}</p>
-          </div>
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Package className="w-5 h-5 text-warning" />
-              <span className="text-sm text-muted-foreground">Peso Escoam.</span>
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="w-5 h-5 text-warning" />
+                <span className="text-sm text-muted-foreground">Peso Escoam.</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">
+                {stats.pesoEscoamento.toFixed(2)} t
+              </p>
             </div>
-            <p className="text-2xl font-bold text-foreground">
-              {stats.pesoEscoamento.toFixed(2)} t
-            </p>
-          </div>
-          <div className="rounded-xl bg-card border border-border p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Package className="w-5 h-5 text-info" />
-              <span className="text-sm text-muted-foreground">Peso Abast.</span>
+            <div className="rounded-xl bg-card border border-border p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Package className="w-5 h-5 text-info" />
+                <span className="text-sm text-muted-foreground">Peso Abast.</span>
+              </div>
+              <p className="text-2xl font-bold text-foreground">
+                {stats.pesoAbastecimento.toFixed(2)} t
+              </p>
             </div>
-            <p className="text-2xl font-bold text-foreground">
-              {stats.pesoAbastecimento.toFixed(2)} t
-            </p>
           </div>
-        </div>
 
         {/* Toggle, Filtros e Form */}
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -393,7 +408,12 @@ const Viagens = () => {
             )}
           </>
         )}
-      </div>
+        </TabsContent>
+
+        <TabsContent value="vinculacao">
+          <DriverVehicleAssignment />
+        </TabsContent>
+      </Tabs>
 
       {/* Modal de Edição */}
       {editingTrip && (
