@@ -527,41 +527,27 @@ const Telemetria = () => {
             <CardHeader>
               <CardTitle>Consumo de Combustível</CardTitle>
               <CardDescription>
-                Meta de consumo: {settings?.expected_consumption || 3.5} km/l
+                Dados calculados a partir dos abastecimentos registrados manualmente. 
+                Meta geral: {settings?.expected_consumption || 3.5} km/l
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {vehicles?.map((v) => {
-                  // Simular consumo baseado em dados de telemetria (em produção viria de trip_statistics)
-                  const randomConsumption = 2.8 + Math.random() * 1.5;
-                  const target = settings?.expected_consumption || 3.5;
-                  
-                  return (
-                    <div key={v.id} className="text-center p-6 rounded-lg bg-muted/30">
-                      <p className="font-medium mb-4">{v.plate}</p>
-                      <FuelConsumptionGauge 
-                        consumption={randomConsumption}
-                        target={target}
-                        size="lg"
-                      />
-                      <p className="mt-4 text-2xl font-bold">
-                        {randomConsumption.toFixed(2)} <span className="text-sm font-normal">km/l</span>
-                      </p>
-                      <Badge 
-                        className="mt-2"
-                        variant={randomConsumption >= target ? "default" : "destructive"}
-                      >
-                        {randomConsumption >= target ? 'Dentro da meta' : 'Abaixo da meta'}
-                      </Badge>
-                    </div>
-                  );
-                })}
-                {(!vehicles || vehicles.length === 0) && (
-                  <p className="col-span-full text-center text-muted-foreground py-8">
-                    Nenhum veículo cadastrado
+              <div className="text-center py-12 space-y-4">
+                <div className="p-4 rounded-full bg-warning/20 w-fit mx-auto">
+                  <Fuel className="h-12 w-12 text-warning" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Aguardando dados de telemetria</h3>
+                  <p className="text-muted-foreground max-w-md mx-auto">
+                    A integração com a TrucksControl ainda não está retornando dados. 
+                    Para visualizar consumo real, acesse a página de <strong>Abastecimentos</strong> onde os cálculos são feitos a partir dos dados manuais.
                   </p>
-                )}
+                </div>
+                <div className="pt-4">
+                  <Badge variant="outline" className="text-sm">
+                    Os dados de consumo automáticos serão exibidos aqui quando a telemetria estiver ativa
+                  </Badge>
+                </div>
               </div>
             </CardContent>
           </Card>

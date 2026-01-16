@@ -48,9 +48,25 @@ const DashboardExecutivo = () => {
 
   const totalFuelCost = fuelEntries?.reduce((acc, e) => acc + e.total_cost, 0) || 0;
   const totalFuelLiters = fuelEntries?.reduce((acc, e) => acc + e.liters, 0) || 0;
-  const avgConsumption = tripStats?.length 
-    ? tripStats.reduce((acc, s) => acc + (s.avg_consumption_km_per_liter || 0), 0) / tripStats.length 
-    : 0;
+  
+  // Calcular consumo médio a partir dos abastecimentos (dados reais)
+  const sortedFuelEntries = [...(fuelEntries || [])].sort((a, b) => {
+    if (a.vehicle_id !== b.vehicle_id) return a.vehicle_id.localeCompare(b.vehicle_id);
+    return new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime();
+  });
+  
+  let totalKmFromFuel = 0;
+  let totalLitersForCalc = 0;
+  sortedFuelEntries.forEach((entry, index, arr) => {
+    const previousEntries = arr.slice(index + 1).filter(e => e.vehicle_id === entry.vehicle_id);
+    const previousEntry = previousEntries[0];
+    if (previousEntry && entry.mileage > previousEntry.mileage) {
+      totalKmFromFuel += entry.mileage - previousEntry.mileage;
+      totalLitersForCalc += entry.liters;
+    }
+  });
+  
+  const avgConsumption = totalLitersForCalc > 0 ? totalKmFromFuel / totalLitersForCalc : 0;
 
   const totalMaintenanceCost = maintenances?.reduce((acc, m) => acc + (m.cost || 0), 0) || 0;
   const pendingMaintenances = maintenances?.filter(m => m.status === 'scheduled' || m.status === 'overdue').length || 0;
@@ -60,7 +76,7 @@ const DashboardExecutivo = () => {
 
   const totalTrips = trips?.length || 0;
   const totalWeight = trips?.reduce((acc, t) => acc + t.weight, 0) || 0;
-  const totalKm = tripStats?.reduce((acc, s) => acc + (s.total_distance_km || 0), 0) || 0;
+  const totalKm = totalKmFromFuel; // Usar km calculado dos abastecimentos
 
   const avgDriverScore = driverScores?.length 
     ? driverScores.reduce((acc, s) => acc + (s.total_score || 0), 0) / driverScores.length 
@@ -91,24 +107,38 @@ const DashboardExecutivo = () => {
     ?.sort((a, b) => (b.total_score || 0) - (a.total_score || 0))
     .slice(0, 5) || [];
 
-  // Consumo por veículo
-  const consumptionByVehicle = tripStats
-    ?.reduce((acc, stat) => {
-      const existing = acc.find(v => v.plate === stat.vehicle_plate);
-      if (existing) {
-        existing.consumption = (existing.consumption + (stat.avg_consumption_km_per_liter || 0)) / 2;
-        existing.km += stat.total_distance_km || 0;
-      } else {
-        acc.push({
-          plate: stat.vehicle_plate,
-          consumption: stat.avg_consumption_km_per_liter || 0,
-          km: stat.total_distance_km || 0,
-        });
+  // Consumo por veículo - calculado a partir dos abastecimentos reais
+  const consumptionByVehicle = sortedFuelEntries
+    .reduce((acc, entry, index, arr) => {
+      const previousEntries = arr.slice(index + 1).filter(e => e.vehicle_id === entry.vehicle_id);
+      const previousEntry = previousEntries[0];
+      
+      if (previousEntry && entry.mileage > previousEntry.mileage) {
+        const kmRodados = entry.mileage - previousEntry.mileage;
+        const consumption = kmRodados / entry.liters;
+        
+        const existing = acc.find(v => v.plate === entry.vehicle_plate);
+        if (existing) {
+          existing.totalKm += kmRodados;
+          existing.totalLiters += entry.liters;
+        } else {
+          acc.push({
+            plate: entry.vehicle_plate,
+            totalKm: kmRodados,
+            totalLiters: entry.liters,
+          });
+        }
       }
       return acc;
-    }, [] as { plate: string; consumption: number; km: number }[])
-    ?.sort((a, b) => b.consumption - a.consumption)
-    .slice(0, 8) || [];
+    }, [] as { plate: string; totalKm: number; totalLiters: number }[])
+    .map(v => ({
+      plate: v.plate,
+      consumption: v.totalLiters > 0 ? v.totalKm / v.totalLiters : 0,
+      km: v.totalKm,
+    }))
+    .filter(v => v.consumption > 0)
+    .sort((a, b) => b.consumption - a.consumption)
+    .slice(0, 8);
 
   return (
     <MainLayout 
