@@ -14,6 +14,7 @@ interface SyncResult {
   vehiclesReceived: number;
   vehiclesUpdated: number;
   vehiclesCreated?: number;
+  vehiclesMileageUpdated?: number;
   journeyEventsReceived: number;
   journeyEntriesCreated: number;
   message: string;
@@ -350,7 +351,7 @@ export function TrucksControlSync() {
                 <div className="text-xs text-muted-foreground">Eventos Recebidos</div>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <div className="rounded bg-primary/10 p-2 text-center">
                 <div className="text-lg font-bold text-primary">{lastSync.vehiclesUpdated}</div>
                 <div className="text-xs text-muted-foreground">Já Cadastrados</div>
@@ -358,6 +359,12 @@ export function TrucksControlSync() {
               <div className="rounded bg-green-500/10 p-2 text-center">
                 <div className="text-lg font-bold text-green-600">{lastSync.vehiclesCreated || 0}</div>
                 <div className="text-xs text-muted-foreground">Novos Criados</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded bg-blue-500/10 p-2 text-center">
+                <div className="text-lg font-bold text-blue-600">{lastSync.vehiclesMileageUpdated || 0}</div>
+                <div className="text-xs text-muted-foreground">KM Atualizados</div>
               </div>
               <div className="rounded bg-primary/10 p-2 text-center">
                 <div className="text-lg font-bold text-primary">{lastSync.journeyEntriesCreated}</div>

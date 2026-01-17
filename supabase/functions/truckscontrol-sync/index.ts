@@ -15,6 +15,11 @@ interface TrucksControlVehicle {
   placa?: string;
   mot?: string;
   ident?: string;
+  odometro?: number;
+  latitude?: number;
+  longitude?: number;
+  velocidade?: number;
+  ignicao?: boolean;
 }
 
 type AttemptLog = {
@@ -427,11 +432,28 @@ serve(async (req) => {
     if (rawXml) {
       const vehicleNodes = parseXmlArray(rawXml, "Veiculo");
       for (const vehicleXml of vehicleNodes) {
+        // Tentar extrair odômetro de várias tags possíveis
+        const odoStr = parseXmlValue(vehicleXml, "odometro") || 
+                       parseXmlValue(vehicleXml, "odo") || 
+                       parseXmlValue(vehicleXml, "km") ||
+                       parseXmlValue(vehicleXml, "quilometragem") || "0";
+        const odo = parseInt(odoStr, 10);
+        
+        const latStr = parseXmlValue(vehicleXml, "latitude") || parseXmlValue(vehicleXml, "lat") || "0";
+        const lngStr = parseXmlValue(vehicleXml, "longitude") || parseXmlValue(vehicleXml, "lng") || parseXmlValue(vehicleXml, "lon") || "0";
+        const velStr = parseXmlValue(vehicleXml, "velocidade") || parseXmlValue(vehicleXml, "vel") || "0";
+        const ignStr = parseXmlValue(vehicleXml, "ignicao") || parseXmlValue(vehicleXml, "ign");
+        
         const vehicle: TrucksControlVehicle = {
           veiID: parseXmlValue(vehicleXml, "veiID") || undefined,
           placa: parseXmlValue(vehicleXml, "placa") || undefined,
           mot: parseXmlValue(vehicleXml, "mot") || undefined,
           ident: parseXmlValue(vehicleXml, "ident") || undefined,
+          odometro: odo > 0 ? odo : undefined,
+          latitude: parseFloat(latStr) || undefined,
+          longitude: parseFloat(lngStr) || undefined,
+          velocidade: parseInt(velStr, 10) || undefined,
+          ignicao: ignStr === "1" || ignStr === "true" || ignStr === "on",
         };
         if (vehicle.placa) vehiclesData.push(vehicle);
       }
@@ -439,16 +461,50 @@ serve(async (req) => {
 
     let vehiclesMatched = 0;
     let vehiclesCreated = 0;
+    let vehiclesMileageUpdated = 0;
+    
     for (const vehicle of vehiclesData) {
       if (!vehicle.placa) continue;
       const { data: existingVehicle } = await supabase
         .from("vehicles")
-        .select("id, plate")
+        .select("id, plate, mileage")
         .eq("plate", vehicle.placa)
         .maybeSingle();
 
       if (existingVehicle) {
         vehiclesMatched++;
+        
+        // Atualizar odômetro se disponível e maior que o atual
+        if (vehicle.odometro && vehicle.odometro > (existingVehicle.mileage || 0)) {
+          const { error: updateError } = await supabase
+            .from("vehicles")
+            .update({ mileage: vehicle.odometro })
+            .eq("id", existingVehicle.id);
+          
+          if (!updateError) {
+            vehiclesMileageUpdated++;
+            console.log(`[truckscontrol-sync] Odômetro atualizado: ${vehicle.placa} = ${vehicle.odometro} km`);
+          }
+        }
+        
+        // Atualizar telemetria se tiver coordenadas
+        if (vehicle.latitude && vehicle.longitude) {
+          await supabase
+            .from("vehicle_telemetry")
+            .upsert({
+              vehicle_id: existingVehicle.id,
+              vehicle_plate: vehicle.placa,
+              truckscontrol_id: vehicle.veiID,
+              latitude: vehicle.latitude,
+              longitude: vehicle.longitude,
+              speed: vehicle.velocidade,
+              ignition_on: vehicle.ignicao,
+              odometer: vehicle.odometro,
+              received_at: new Date(),
+            }, {
+              onConflict: "vehicle_id",
+            });
+        }
       } else {
         // Criar veículo novo automaticamente
         const { error: insertError } = await supabase
@@ -458,7 +514,7 @@ serve(async (req) => {
             model: vehicle.mot || "Não especificado",
             brand: "Não especificado",
             year: new Date().getFullYear(),
-            mileage: 0,
+            mileage: vehicle.odometro || 0,
             fuel_type: "diesel",
             status: "active",
             next_maintenance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -466,7 +522,7 @@ serve(async (req) => {
         
         if (!insertError) {
           vehiclesCreated++;
-          console.log(`[truckscontrol-sync] Veículo criado: ${vehicle.placa}`);
+          console.log(`[truckscontrol-sync] Veículo criado: ${vehicle.placa} com ${vehicle.odometro || 0} km`);
         } else {
           console.error(`[truckscontrol-sync] Erro ao criar veículo ${vehicle.placa}:`, insertError);
         }
@@ -483,11 +539,12 @@ serve(async (req) => {
         vehiclesReceived: vehiclesData.length,
         vehiclesUpdated: vehiclesMatched,
         vehiclesCreated: vehiclesCreated,
+        vehiclesMileageUpdated: vehiclesMileageUpdated,
         journeyEventsReceived: 0,
         journeyEntriesCreated: 0,
 
         message: success
-          ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} já cadastrados, ${vehiclesCreated} novos criados.`
+          ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} já cadastrados, ${vehiclesCreated} novos criados, ${vehiclesMileageUpdated} km atualizados.`
           : `Falha ao obter veículos. ${lastApiError ? `Detalhe: ${lastApiError}` : ""}`.trim(),
 
         error: success ? undefined : lastApiError || "Não foi possível obter dados",
