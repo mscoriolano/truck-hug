@@ -281,7 +281,13 @@ const DashboardExecutivo = () => {
                 <Target className="w-4 h-4 text-warning" />
                 <span className="text-xs text-muted-foreground">Peso Transportado</span>
               </div>
-              <div className="text-2xl font-bold">{(totalWeight / 1000).toFixed(1)}t</div>
+              <div className="text-2xl font-bold">
+                {totalWeight >= 1000000 
+                  ? `${(totalWeight / 1000000).toFixed(1)}Mt` 
+                  : totalWeight >= 1000 
+                    ? `${(totalWeight / 1000).toFixed(1)}kt` 
+                    : `${totalWeight.toFixed(1)}t`}
+              </div>
             </CardContent>
           </Card>
 
