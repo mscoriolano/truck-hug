@@ -454,6 +454,20 @@ serve(async (req) => {
       if (!telemetryError) {
         telemetryUpdated++;
 
+        // Atualizar quilometragem do veículo se odômetro disponível
+        if (msg.odometro && msg.odometro > 0) {
+          const { error: updateMileageError } = await supabase
+            .from("vehicles")
+            .update({ mileage: msg.odometro })
+            .eq("id", vehicle.id);
+          
+          if (updateMileageError) {
+            console.error(`[truckscontrol-telemetry] Erro ao atualizar km do veículo ${msg.placa}:`, updateMileageError);
+          } else {
+            console.log(`[truckscontrol-telemetry] Odômetro atualizado: ${msg.placa} = ${msg.odometro} km`);
+          }
+        }
+
         // Inserir no histórico
         await supabase.from("telemetry_history").insert({
           vehicle_id: vehicle.id,
