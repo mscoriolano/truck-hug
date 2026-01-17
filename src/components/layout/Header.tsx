@@ -1,8 +1,9 @@
-import { Bell, Search, User } from 'lucide-react';
+import { Bell, Search, User, Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { mockAlerts } from '@/data/mockData';
+import { useTheme } from 'next-themes';
 
 interface HeaderProps {
   title: string;
@@ -11,6 +12,11 @@ interface HeaderProps {
 
 export function Header({ title, subtitle }: HeaderProps) {
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
+  const { theme, setTheme } = useTheme();
+
+  const toggleTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-background/80 backdrop-blur-lg border-b border-border">
@@ -31,6 +37,20 @@ export function Header({ title, subtitle }: HeaderProps) {
               className="w-64 pl-9 bg-secondary border-border focus:ring-primary"
             />
           </div>
+
+          {/* Theme Toggle */}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-5 h-5 text-yellow-400" />
+            ) : (
+              <Moon className="w-5 h-5 text-slate-700" />
+            )}
+          </Button>
 
           {/* Notifications */}
           <Button variant="ghost" size="icon" className="relative">

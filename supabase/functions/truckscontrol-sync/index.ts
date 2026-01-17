@@ -438,6 +438,7 @@ serve(async (req) => {
     }
 
     let vehiclesMatched = 0;
+    let vehiclesCreated = 0;
     for (const vehicle of vehiclesData) {
       if (!vehicle.placa) continue;
       const { data: existingVehicle } = await supabase
@@ -446,7 +447,30 @@ serve(async (req) => {
         .eq("plate", vehicle.placa)
         .maybeSingle();
 
-      if (existingVehicle) vehiclesMatched++;
+      if (existingVehicle) {
+        vehiclesMatched++;
+      } else {
+        // Criar veículo novo automaticamente
+        const { error: insertError } = await supabase
+          .from("vehicles")
+          .insert({
+            plate: vehicle.placa,
+            model: vehicle.mot || "Não especificado",
+            brand: "Não especificado",
+            year: new Date().getFullYear(),
+            mileage: 0,
+            fuel_type: "diesel",
+            status: "active",
+            next_maintenance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          });
+        
+        if (!insertError) {
+          vehiclesCreated++;
+          console.log(`[truckscontrol-sync] Veículo criado: ${vehicle.placa}`);
+        } else {
+          console.error(`[truckscontrol-sync] Erro ao criar veículo ${vehicle.placa}:`, insertError);
+        }
+      }
     }
 
     const success = Boolean(rawXml) && vehiclesData.length >= 0;
@@ -458,11 +482,12 @@ serve(async (req) => {
 
         vehiclesReceived: vehiclesData.length,
         vehiclesUpdated: vehiclesMatched,
+        vehiclesCreated: vehiclesCreated,
         journeyEventsReceived: 0,
         journeyEntriesCreated: 0,
 
         message: success
-          ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} correspondem ao seu cadastro.`
+          ? `OK: ${vehiclesData.length} veículo(s) recebidos. ${vehiclesMatched} já cadastrados, ${vehiclesCreated} novos criados.`
           : `Falha ao obter veículos. ${lastApiError ? `Detalhe: ${lastApiError}` : ""}`.trim(),
 
         error: success ? undefined : lastApiError || "Não foi possível obter dados",
