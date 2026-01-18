@@ -68,21 +68,28 @@ function escapeXml(value: string): string {
 function buildTelemetryRequestXml(
   user: string,
   password: string,
-  veiID?: string,
+  opts?: { veiID?: string; atributos?: string },
 ): string {
   // RequestMensagemCB para obter telemetria
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
   <senha>${escapeXml(password)}</senha>`;
-  
-  if (veiID) {
-    xml += `\n  <veiID>${escapeXml(veiID)}</veiID>`;
+
+  if (opts?.veiID) {
+    xml += `\n  <veiID>${escapeXml(opts.veiID)}</veiID>`;
   }
-  
+
+  // Alguns ambientes do TrucksControl exigem explicitamente os atributos retornados.
+  // Mantemos como opcional e tentamos algumas variações.
+  if (opts?.atributos) {
+    xml += `\n  <atributos>${escapeXml(opts.atributos)}</atributos>`;
+  }
+
   xml += `\n</RequestMensagemCB>`;
   return xml;
 }
+
 
 function maskPasswordInXml(xml: string): string {
   return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
@@ -317,11 +324,14 @@ serve(async (req) => {
 
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
-    const xmlRequest = buildTelemetryRequestXml(
-      TRUCKSCONTROL_USER,
-      TRUCKSCONTROL_PASSWORD,
-      input.veiID,
-    );
+    // A TrucksControl às vezes retorna erro de "atributos inválidos" quando o RequestMensagemCB
+    // não informa explicitamente quais campos deseja retornar. Por isso fazemos tentativas com fallback.
+    const requestVariants: Array<{ label: string; atributos?: string }> = [
+      { label: "no_atributos" },
+      { label: "atributos_all", atributos: "all" },
+      // fallback mais comum (se 'all' não for aceito)
+      { label: "atributos_common", atributos: "veiID,placa,latitude,longitude,velocidade,ignicao,odometro,dataHora" },
+    ];
 
     console.log("[truckscontrol-telemetry] start", {
       ts: new Date().toISOString(),
@@ -329,32 +339,89 @@ serve(async (req) => {
       veiID: input.veiID || "all",
     });
 
-    const controller = new AbortController();
-    // Aumentado para 90s - webservice TrucksControl pode ser lento
-    const timeout = setTimeout(() => controller.abort(), 90_000);
+    let responseText = "";
+    let responseStatus = 0;
+    let responseContentType: string | null = null;
+    let lastXmlRequestMasked = "";
 
-    let response: Response | null = null;
-    try {
-      response = await fetch(webserviceUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/xml; charset=UTF-8",
-          Accept: "text/xml, application/xml, application/zip, application/gzip, */*",
-          "Accept-Encoding": "gzip, deflate",
-          "User-Agent": "FleetApp/1.0",
-        },
-        body: xmlRequest,
-        signal: controller.signal,
+    for (const variant of requestVariants) {
+      const xmlRequest = buildTelemetryRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, {
+        veiID: input.veiID,
+        atributos: variant.atributos,
       });
-    } finally {
-      clearTimeout(timeout);
+      lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
+
+      const controller = new AbortController();
+      const timeoutMs = 45_000;
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+      let response: Response;
+      try {
+        response = await fetch(webserviceUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/xml; charset=UTF-8",
+            Accept: "text/xml, application/xml, application/zip, application/gzip, */*",
+            "Accept-Encoding": "gzip, deflate",
+            "User-Agent": "FleetApp/1.0",
+          },
+          body: xmlRequest,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      responseStatus = response.status;
+      responseContentType = response.headers.get("content-type");
+
+      const limited = await readBodyLimited(response, 5_000_000);
+      const decoded = decodeTrucksControlBody(limited.bytes);
+      responseText = decoded.text || "";
+
+      const apiErr =
+        (responseText.includes("<erro>") || responseText.includes("<ErrorRequest"))
+          ? (parseXmlValue(responseText, "erro") ||
+              parseXmlValue(responseText, "Erro") ||
+              "Erro retornado pela TrucksControl")
+          : null;
+
+      console.log("[truckscontrol-telemetry] attempt", {
+        label: variant.label,
+        status: responseStatus,
+        contentType: responseContentType,
+        bytes: limited.bytes.length,
+        hasError: Boolean(apiErr),
+      });
+
+      // Se não teve erro, seguimos.
+      if (!apiErr) break;
+
+      // Se o erro é de atributos, tentamos a próxima variante.
+      if (/atribut/i.test(apiErr)) {
+        continue;
+      }
+
+      // Para outros erros, já retornamos.
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: apiErr,
+          timestamp: new Date().toISOString(),
+          debug: debugEnabled
+            ? {
+                requestXmlMasked: maskPasswordInXml(xmlRequest),
+                status: responseStatus,
+                contentType: responseContentType,
+                xmlResponse: responseText.slice(0, 5000),
+              }
+            : undefined,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    const limited = await readBodyLimited(response, 5_000_000);
-    const decoded = decodeTrucksControlBody(limited.bytes);
-    const responseText = decoded.text || "";
-
-    // Verificar erros
+    // Verificar erro após as tentativas
     if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
       const msg =
         parseXmlValue(responseText, "erro") ||
@@ -368,11 +435,18 @@ serve(async (req) => {
           success: false,
           error: lastApiError,
           timestamp: new Date().toISOString(),
-          debug: debugEnabled ? { xmlResponse: responseText.slice(0, 5000) } : undefined,
+          debug: debugEnabled
+            ? {
+                status: responseStatus,
+                contentType: responseContentType,
+                xmlResponse: responseText.slice(0, 5000),
+              }
+            : undefined,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+
 
     // Parsear mensagens de telemetria
     const telemetryMessages: TelemetryMessage[] = [];
@@ -519,7 +593,7 @@ serve(async (req) => {
         telemetryUpdated,
         alertsCreated,
         debug: debugEnabled ? {
-          xmlRequest: maskPasswordInXml(xmlRequest),
+          xmlRequest: lastXmlRequestMasked,
           xmlResponsePreview: responseText.slice(0, 5000),
           messages: telemetryMessages.slice(0, 10),
         } : undefined,
