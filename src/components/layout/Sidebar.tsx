@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 
 interface SidebarProps {
   className?: string;
+  onClose?: () => void;
 }
 
 const navItems = [
@@ -52,7 +53,7 @@ const bottomItems = [
   { icon: Book, label: 'Guia de Uso', path: '/guia' },
 ];
 
-export function Sidebar({ className }: SidebarProps) {
+export function Sidebar({ className, onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -62,6 +63,11 @@ export function Sidebar({ className }: SidebarProps) {
     await signOut();
     toast.success('Logout realizado com sucesso!');
     navigate('/auth');
+  };
+
+  const handleNavClick = () => {
+    // Close sidebar on mobile when navigating
+    if (onClose) onClose();
   };
 
   return (
@@ -99,6 +105,7 @@ export function Sidebar({ className }: SidebarProps) {
             <li key={item.path}>
               <NavLink
                 to={item.path}
+                onClick={handleNavClick}
                 className={({ isActive }) => cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
                   "hover:bg-sidebar-accent group",
@@ -125,6 +132,7 @@ export function Sidebar({ className }: SidebarProps) {
             <li key={item.path}>
               <NavLink
                 to={item.path}
+                onClick={handleNavClick}
                 className={({ isActive }) => cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
                   "hover:bg-sidebar-accent group",

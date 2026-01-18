@@ -431,13 +431,23 @@ serve(async (req) => {
 
     if (rawXml) {
       const vehicleNodes = parseXmlArray(rawXml, "Veiculo");
+      console.log(`[truckscontrol-sync] Veículos encontrados no XML: ${vehicleNodes.length}`);
+      
       for (const vehicleXml of vehicleNodes) {
+        // Log do XML bruto de cada veículo para debug
+        const placa = parseXmlValue(vehicleXml, "placa");
+        
         // Tentar extrair odômetro de várias tags possíveis
         const odoStr = parseXmlValue(vehicleXml, "odometro") || 
                        parseXmlValue(vehicleXml, "odo") || 
                        parseXmlValue(vehicleXml, "km") ||
-                       parseXmlValue(vehicleXml, "quilometragem") || "0";
+                       parseXmlValue(vehicleXml, "quilometragem") ||
+                       parseXmlValue(vehicleXml, "hodometro") ||
+                       parseXmlValue(vehicleXml, "hodo") || "0";
         const odo = parseInt(odoStr, 10);
+        
+        // Log detalhado para cada veículo
+        console.log(`[truckscontrol-sync] Veículo ${placa}: odometro_raw="${odoStr}", parsed=${odo}`);
         
         const latStr = parseXmlValue(vehicleXml, "latitude") || parseXmlValue(vehicleXml, "lat") || "0";
         const lngStr = parseXmlValue(vehicleXml, "longitude") || parseXmlValue(vehicleXml, "lng") || parseXmlValue(vehicleXml, "lon") || "0";
@@ -446,7 +456,7 @@ serve(async (req) => {
         
         const vehicle: TrucksControlVehicle = {
           veiID: parseXmlValue(vehicleXml, "veiID") || undefined,
-          placa: parseXmlValue(vehicleXml, "placa") || undefined,
+          placa: placa || undefined,
           mot: parseXmlValue(vehicleXml, "mot") || undefined,
           ident: parseXmlValue(vehicleXml, "ident") || undefined,
           odometro: odo > 0 ? odo : undefined,
@@ -456,6 +466,11 @@ serve(async (req) => {
           ignicao: ignStr === "1" || ignStr === "true" || ignStr === "on",
         };
         if (vehicle.placa) vehiclesData.push(vehicle);
+      }
+      
+      // Log do primeiro veículo XML para debug se disponível
+      if (vehicleNodes.length > 0 && debugEnabled) {
+        console.log(`[truckscontrol-sync] Primeiro veículo XML (amostra):`, vehicleNodes[0].slice(0, 500));
       }
     }
 
