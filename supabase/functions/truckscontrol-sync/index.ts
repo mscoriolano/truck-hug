@@ -350,7 +350,7 @@ serve(async (req) => {
     });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000); // 60 segundos de timeout
 
     let response: Response | null = null;
     try {
@@ -434,43 +434,50 @@ serve(async (req) => {
       console.log(`[truckscontrol-sync] Veículos encontrados no XML: ${vehicleNodes.length}`);
       
       for (const vehicleXml of vehicleNodes) {
-        // Log do XML bruto de cada veículo para debug
         const placa = parseXmlValue(vehicleXml, "placa");
         
-        // Tentar extrair odômetro de várias tags possíveis
-        const odoStr = parseXmlValue(vehicleXml, "odometro") || 
-                       parseXmlValue(vehicleXml, "odo") || 
-                       parseXmlValue(vehicleXml, "km") ||
-                       parseXmlValue(vehicleXml, "quilometragem") ||
-                       parseXmlValue(vehicleXml, "hodometro") ||
-                       parseXmlValue(vehicleXml, "hodo") || "0";
-        const odo = parseInt(odoStr, 10);
+        // Log completo do XML do primeiro veículo para debug
+        if (vehicleNodes.indexOf(vehicleXml) === 0) {
+          console.log(`[truckscontrol-sync] XML completo do primeiro veículo:`, vehicleXml);
+        }
+        
+        // Tentar extrair odômetro de várias tags possíveis (case-insensitive search)
+        const xmlLower = vehicleXml.toLowerCase();
+        let odoStr = "0";
+        const odoTags = ['odometro', 'odo', 'km', 'quilometragem', 'hodometro', 'hodo', 'mileage', 'totalkm'];
+        
+        for (const tag of odoTags) {
+          const val = parseXmlValue(vehicleXml, tag) || parseXmlValue(vehicleXml, tag.charAt(0).toUpperCase() + tag.slice(1));
+          if (val && val !== "0") {
+            odoStr = val;
+            console.log(`[truckscontrol-sync] ${placa}: encontrado ${tag}=${val}`);
+            break;
+          }
+        }
+        
+        const odo = parseInt(odoStr.replace(/[^\d]/g, ''), 10) || 0;
+        
+        // Tentar latitude/longitude
+        const latStr = parseXmlValue(vehicleXml, "latitude") || parseXmlValue(vehicleXml, "lat") || parseXmlValue(vehicleXml, "Latitude") || "0";
+        const lngStr = parseXmlValue(vehicleXml, "longitude") || parseXmlValue(vehicleXml, "lng") || parseXmlValue(vehicleXml, "lon") || parseXmlValue(vehicleXml, "Longitude") || "0";
+        const velStr = parseXmlValue(vehicleXml, "velocidade") || parseXmlValue(vehicleXml, "vel") || parseXmlValue(vehicleXml, "Velocidade") || "0";
+        const ignStr = parseXmlValue(vehicleXml, "ignicao") || parseXmlValue(vehicleXml, "ign") || parseXmlValue(vehicleXml, "Ignicao");
         
         // Log detalhado para cada veículo
-        console.log(`[truckscontrol-sync] Veículo ${placa}: odometro_raw="${odoStr}", parsed=${odo}`);
-        
-        const latStr = parseXmlValue(vehicleXml, "latitude") || parseXmlValue(vehicleXml, "lat") || "0";
-        const lngStr = parseXmlValue(vehicleXml, "longitude") || parseXmlValue(vehicleXml, "lng") || parseXmlValue(vehicleXml, "lon") || "0";
-        const velStr = parseXmlValue(vehicleXml, "velocidade") || parseXmlValue(vehicleXml, "vel") || "0";
-        const ignStr = parseXmlValue(vehicleXml, "ignicao") || parseXmlValue(vehicleXml, "ign");
+        console.log(`[truckscontrol-sync] Veículo ${placa}: odo=${odo}, lat=${latStr}, lng=${lngStr}`);
         
         const vehicle: TrucksControlVehicle = {
-          veiID: parseXmlValue(vehicleXml, "veiID") || undefined,
+          veiID: parseXmlValue(vehicleXml, "veiID") || parseXmlValue(vehicleXml, "id") || undefined,
           placa: placa || undefined,
-          mot: parseXmlValue(vehicleXml, "mot") || undefined,
-          ident: parseXmlValue(vehicleXml, "ident") || undefined,
+          mot: parseXmlValue(vehicleXml, "mot") || parseXmlValue(vehicleXml, "modelo") || undefined,
+          ident: parseXmlValue(vehicleXml, "ident") || parseXmlValue(vehicleXml, "identificador") || undefined,
           odometro: odo > 0 ? odo : undefined,
           latitude: parseFloat(latStr) || undefined,
           longitude: parseFloat(lngStr) || undefined,
           velocidade: parseInt(velStr, 10) || undefined,
-          ignicao: ignStr === "1" || ignStr === "true" || ignStr === "on",
+          ignicao: ignStr === "1" || ignStr === "true" || ignStr === "on" || ignStr === "Ligado",
         };
         if (vehicle.placa) vehiclesData.push(vehicle);
-      }
-      
-      // Log do primeiro veículo XML para debug se disponível
-      if (vehicleNodes.length > 0 && debugEnabled) {
-        console.log(`[truckscontrol-sync] Primeiro veículo XML (amostra):`, vehicleNodes[0].slice(0, 500));
       }
     }
 
