@@ -202,6 +202,149 @@ export type Database = {
           },
         ]
       }
+      driver_journey_compliance: {
+        Row: {
+          break_end: string | null
+          break_start: string | null
+          created_at: string
+          driver_id: string
+          driver_name: string
+          id: string
+          inter_journey_rest_minutes: number | null
+          is_inter_journey_compliant: boolean | null
+          is_overtime_compliant: boolean | null
+          is_weekly_rest_compliant: boolean | null
+          journey_date: string
+          journey_end: string | null
+          journey_start: string | null
+          notes: string | null
+          overtime_minutes: number | null
+          source: string | null
+          total_break_minutes: number | null
+          total_worked_minutes: number | null
+          updated_at: string
+        }
+        Insert: {
+          break_end?: string | null
+          break_start?: string | null
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          id?: string
+          inter_journey_rest_minutes?: number | null
+          is_inter_journey_compliant?: boolean | null
+          is_overtime_compliant?: boolean | null
+          is_weekly_rest_compliant?: boolean | null
+          journey_date: string
+          journey_end?: string | null
+          journey_start?: string | null
+          notes?: string | null
+          overtime_minutes?: number | null
+          source?: string | null
+          total_break_minutes?: number | null
+          total_worked_minutes?: number | null
+          updated_at?: string
+        }
+        Update: {
+          break_end?: string | null
+          break_start?: string | null
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          id?: string
+          inter_journey_rest_minutes?: number | null
+          is_inter_journey_compliant?: boolean | null
+          is_overtime_compliant?: boolean | null
+          is_weekly_rest_compliant?: boolean | null
+          journey_date?: string
+          journey_end?: string | null
+          journey_start?: string | null
+          notes?: string | null
+          overtime_minutes?: number | null
+          source?: string | null
+          total_break_minutes?: number | null
+          total_worked_minutes?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_journey_compliance_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_journey_events: {
+        Row: {
+          created_at: string
+          driver_id: string
+          driver_name: string
+          event_timestamp: string
+          event_type: string
+          id: string
+          latitude: number | null
+          location_name: string | null
+          longitude: number | null
+          macro_code: string | null
+          mileage: number | null
+          raw_data: Json | null
+          source: string | null
+          vehicle_id: string | null
+          vehicle_plate: string | null
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          driver_name: string
+          event_timestamp?: string
+          event_type: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          macro_code?: string | null
+          mileage?: number | null
+          raw_data?: Json | null
+          source?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          driver_name?: string
+          event_timestamp?: string
+          event_type?: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          macro_code?: string | null
+          mileage?: number | null
+          raw_data?: Json | null
+          source?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_journey_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_journey_events_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_maintenance_requests: {
         Row: {
           admin_notes: string | null
@@ -613,6 +756,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      journey_legal_settings: {
+        Row: {
+          alert_enabled: boolean | null
+          alert_overtime_warning_minutes: number | null
+          created_at: string
+          id: string
+          macro_break_end: string | null
+          macro_break_start: string | null
+          macro_journey_end: string | null
+          macro_journey_start: string | null
+          max_consecutive_work_days: number | null
+          max_daily_hours: number | null
+          max_overtime_hours: number | null
+          min_inter_journey_hours: number | null
+          min_weekly_rest_hours: number | null
+          updated_at: string
+        }
+        Insert: {
+          alert_enabled?: boolean | null
+          alert_overtime_warning_minutes?: number | null
+          created_at?: string
+          id?: string
+          macro_break_end?: string | null
+          macro_break_start?: string | null
+          macro_journey_end?: string | null
+          macro_journey_start?: string | null
+          max_consecutive_work_days?: number | null
+          max_daily_hours?: number | null
+          max_overtime_hours?: number | null
+          min_inter_journey_hours?: number | null
+          min_weekly_rest_hours?: number | null
+          updated_at?: string
+        }
+        Update: {
+          alert_enabled?: boolean | null
+          alert_overtime_warning_minutes?: number | null
+          created_at?: string
+          id?: string
+          macro_break_end?: string | null
+          macro_break_start?: string | null
+          macro_journey_end?: string | null
+          macro_journey_start?: string | null
+          max_consecutive_work_days?: number | null
+          max_daily_hours?: number | null
+          max_overtime_hours?: number | null
+          min_inter_journey_hours?: number | null
+          min_weekly_rest_hours?: number | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       maintenances: {
         Row: {
