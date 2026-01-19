@@ -1,24 +1,14 @@
 import { Driver } from '@/types/fleet';
 import { cn } from '@/lib/utils';
-import { Clock, MapPin, Truck, User } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Truck, User } from 'lucide-react';
+import { DriverStatusDropdown } from './DriverStatusDropdown';
+import { DriverStatus } from '@/hooks/useDrivers';
 
 interface DriverStatusCardProps {
   driver: Driver;
 }
 
-const statusConfig = {
-  available: { label: 'Disponível', color: 'bg-success text-success-foreground' },
-  driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
-  resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
-  off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
-  terminated: { label: 'Desligado', color: 'bg-destructive text-destructive-foreground' },
-  vacation: { label: 'Férias', color: 'bg-info text-info-foreground' },
-};
-
 export function DriverStatusCard({ driver }: DriverStatusCardProps) {
-  const status = statusConfig[driver.status] || statusConfig.available;
-  
   const formatHours = (hours: number) => {
     const h = Math.floor(hours);
     const m = Math.round((hours - h) * 60);
@@ -49,11 +39,13 @@ export function DriverStatusCard({ driver }: DriverStatusCardProps) {
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h3 className="font-semibold text-foreground truncate">{driver.name}</h3>
-            <Badge className={cn("text-xs", status.color)}>
-              {status.label}
-            </Badge>
+            <DriverStatusDropdown 
+              driverId={driver.id} 
+              currentStatus={driver.status as DriverStatus}
+              size="sm"
+            />
           </div>
           
           {driver.currentVehicle && (

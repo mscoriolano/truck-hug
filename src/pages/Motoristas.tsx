@@ -3,9 +3,9 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { useDrivers, useDeleteDriver, Driver } from '@/hooks/useDrivers';
 import { DriverForm } from '@/components/forms/DriverForm';
 import { DriverEditForm } from '@/components/forms/DriverEditForm';
-import { Badge } from '@/components/ui/badge';
+import { DriverStatusDropdown } from '@/components/dashboard/DriverStatusDropdown';
 import { Button } from '@/components/ui/button';
-import { User, Phone, CreditCard, Truck, MoreVertical, Trash2, Loader2, Edit, Calendar } from 'lucide-react';
+import { User, Phone, CreditCard, MoreVertical, Trash2, Loader2, Edit, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -15,16 +15,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-const statusConfig: Record<string, { label: string; color: string }> = {
-  available: { label: 'Disponível', color: 'bg-success text-success-foreground' },
-  driving: { label: 'Dirigindo', color: 'bg-primary text-primary-foreground' },
-  resting: { label: 'Descansando', color: 'bg-warning text-warning-foreground' },
-  off: { label: 'Folga', color: 'bg-muted text-muted-foreground' },
-  vacation: { label: 'Férias', color: 'bg-info text-info-foreground' },
-  leave: { label: 'Licença', color: 'bg-secondary text-secondary-foreground' },
-  terminated: { label: 'Desligado', color: 'bg-destructive text-destructive-foreground' },
-};
 
 const Motoristas = () => {
   const { data: drivers, isLoading } = useDrivers();
@@ -78,7 +68,6 @@ const Motoristas = () => {
               </thead>
               <tbody>
                 {drivers.map((driver) => {
-                  const status = statusConfig[driver.status] || statusConfig.available;
                   const progressPercent = ((driver.total_hours_today || 0) / 8) * 100;
                   const cnhExpiry = driver.cnh_expiry ? new Date(driver.cnh_expiry) : null;
                   const isCnhExpiring = cnhExpiry && cnhExpiry < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -147,9 +136,10 @@ const Motoristas = () => {
                         </div>
                       </td>
                       <td className="p-4">
-                        <Badge className={cn("text-xs", status.color)}>
-                          {status.label}
-                        </Badge>
+                        <DriverStatusDropdown 
+                          driverId={driver.id} 
+                          currentStatus={driver.status}
+                        />
                       </td>
                       <td className="p-4">
                         <div className="w-32">
