@@ -20,6 +20,15 @@ interface TelemetryMessage {
   odometro?: number;
   dataHora?: string;
   motorista?: string;
+  macro?: string; // Código de macro M1, M2, M3, M4, etc.
+  evento?: string; // Tipo de evento
+}
+
+interface JourneyLegalSettings {
+  macro_journey_start: string | null;
+  macro_journey_end: string | null;
+  macro_break_start: string | null;
+  macro_break_end: string | null;
 }
 
 interface TelemetrySettings {
@@ -461,6 +470,15 @@ serve(async (req) => {
       const ign = parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
       const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odo") || "0", 10);
+      
+      // Buscar código de macro (M1, M2, M3, M4, etc.)
+      const macro = parseXmlValue(msgXml, "macro") || 
+                    parseXmlValue(msgXml, "MACRO") || 
+                    parseXmlValue(msgXml, "codigoMacro") ||
+                    parseXmlValue(msgXml, "codMacro") ||
+                    parseXmlValue(msgXml, "evento") ||
+                    parseXmlValue(msgXml, "tipoEvento") ||
+                    undefined;
 
       const msg: TelemetryMessage = {
         veiID: parseXmlValue(msgXml, "veiID") || undefined,
@@ -473,6 +491,7 @@ serve(async (req) => {
         odometro: odo,
         dataHora: parseXmlValue(msgXml, "dataHora") || parseXmlValue(msgXml, "data") || undefined,
         motorista: parseXmlValue(msgXml, "mot") || parseXmlValue(msgXml, "motorista") || undefined,
+        macro: macro || undefined,
       };
 
       if (msg.placa || msg.veiID) {
@@ -481,10 +500,18 @@ serve(async (req) => {
     }
 
     console.log("[truckscontrol-telemetry] parsed messages:", telemetryMessages.length);
+    
+    // Buscar configurações de jornada para macros
+    const { data: journeySettings } = await supabase
+      .from("journey_legal_settings")
+      .select("macro_journey_start, macro_journey_end, macro_break_start, macro_break_end")
+      .limit(1)
+      .single();
 
     // Atualizar telemetria no banco
     let telemetryUpdated = 0;
     let alertsCreated = 0;
+    let journeyEventsCreated = 0;
 
     for (const msg of telemetryMessages) {
       if (!msg.placa) continue;
@@ -576,6 +603,131 @@ serve(async (req) => {
 
           if (!alertError) alertsCreated++;
         }
+
+        // Processar macro de jornada se configurado
+        if (msg.macro && assignment?.driver_id && journeySettings) {
+          let journeyEventType: string | null = null;
+          
+          // Normalizar macro para comparação (uppercase, sem espaços)
+          const macroNormalized = msg.macro.toUpperCase().trim();
+          
+          // Verificar se a macro corresponde a um evento de jornada
+          if (journeySettings.macro_journey_start && 
+              macroNormalized === journeySettings.macro_journey_start.toUpperCase().trim()) {
+            journeyEventType = 'journey_start';
+          } else if (journeySettings.macro_journey_end && 
+              macroNormalized === journeySettings.macro_journey_end.toUpperCase().trim()) {
+            journeyEventType = 'journey_end';
+          } else if (journeySettings.macro_break_start && 
+              macroNormalized === journeySettings.macro_break_start.toUpperCase().trim()) {
+            journeyEventType = 'break_start';
+          } else if (journeySettings.macro_break_end && 
+              macroNormalized === journeySettings.macro_break_end.toUpperCase().trim()) {
+            journeyEventType = 'break_end';
+          }
+          
+          if (journeyEventType) {
+            console.log(`[truckscontrol-telemetry] Macro ${msg.macro} -> ${journeyEventType} para motorista ${assignment.driver_name}`);
+            
+            // Inserir evento de jornada
+            const { error: journeyError } = await supabase.from("driver_journey_events").insert({
+              driver_id: assignment.driver_id,
+              driver_name: assignment.driver_name,
+              vehicle_id: vehicle.id,
+              vehicle_plate: msg.placa,
+              event_type: journeyEventType,
+              event_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
+              macro_code: msg.macro,
+              latitude: msg.latitude,
+              longitude: msg.longitude,
+              mileage: msg.odometro,
+              source: 'telemetry_macro',
+              raw_data: { macro: msg.macro, velocidade: msg.velocidade, ignicao: msg.ignicao },
+            });
+            
+            if (!journeyError) {
+              journeyEventsCreated++;
+              
+              // Atualizar status do motorista
+              const statusMap: Record<string, string> = {
+                journey_start: 'driving',
+                journey_end: 'available',
+                break_start: 'resting',
+                break_end: 'driving',
+              };
+              
+              if (statusMap[journeyEventType]) {
+                await supabase
+                  .from("drivers")
+                  .update({ 
+                    status: statusMap[journeyEventType],
+                    journey_start: journeyEventType === 'journey_start' 
+                      ? (msg.dataHora ? new Date(msg.dataHora).toISOString() : new Date().toISOString()) 
+                      : undefined,
+                  })
+                  .eq("id", assignment.driver_id);
+              }
+              
+              // Criar/atualizar conformidade de jornada
+              const today = new Date().toISOString().split('T')[0];
+              const eventTime = msg.dataHora ? new Date(msg.dataHora).toISOString() : new Date().toISOString();
+              
+              // Verificar se já existe registro para hoje
+              const { data: existingCompliance } = await supabase
+                .from("driver_journey_compliance")
+                .select("*")
+                .eq("driver_id", assignment.driver_id)
+                .eq("journey_date", today)
+                .single();
+              
+              if (existingCompliance) {
+                // Atualizar registro existente
+                const updates: Record<string, unknown> = {};
+                
+                if (journeyEventType === 'journey_start' && !existingCompliance.journey_start) {
+                  updates.journey_start = eventTime;
+                } else if (journeyEventType === 'journey_end') {
+                  updates.journey_end = eventTime;
+                  if (existingCompliance.journey_start) {
+                    const workedMinutes = Math.floor(
+                      (new Date(eventTime).getTime() - new Date(existingCompliance.journey_start).getTime()) / 60000
+                    ) - (existingCompliance.total_break_minutes || 0);
+                    updates.total_worked_minutes = workedMinutes;
+                    updates.overtime_minutes = Math.max(0, workedMinutes - 480); // 8h = 480min
+                    updates.is_overtime_compliant = (updates.overtime_minutes as number) <= 120; // 2h max
+                  }
+                } else if (journeyEventType === 'break_start') {
+                  updates.break_start = eventTime;
+                } else if (journeyEventType === 'break_end' && existingCompliance.break_start) {
+                  updates.break_end = eventTime;
+                  const breakMinutes = Math.floor(
+                    (new Date(eventTime).getTime() - new Date(existingCompliance.break_start).getTime()) / 60000
+                  );
+                  updates.total_break_minutes = (existingCompliance.total_break_minutes || 0) + breakMinutes;
+                }
+                
+                if (Object.keys(updates).length > 0) {
+                  updates.source = 'telemetry_macro';
+                  await supabase
+                    .from("driver_journey_compliance")
+                    .update(updates)
+                    .eq("id", existingCompliance.id);
+                }
+              } else if (journeyEventType === 'journey_start') {
+                // Criar novo registro
+                await supabase.from("driver_journey_compliance").insert({
+                  driver_id: assignment.driver_id,
+                  driver_name: assignment.driver_name,
+                  journey_date: today,
+                  journey_start: eventTime,
+                  source: 'telemetry_macro',
+                });
+              }
+            } else {
+              console.error(`[truckscontrol-telemetry] Erro ao criar evento de jornada:`, journeyError);
+            }
+          }
+        }
       }
     }
 
@@ -583,6 +735,7 @@ serve(async (req) => {
       messagesReceived: telemetryMessages.length,
       telemetryUpdated,
       alertsCreated,
+      journeyEventsCreated,
     });
 
     return new Response(
@@ -592,10 +745,12 @@ serve(async (req) => {
         messagesReceived: telemetryMessages.length,
         telemetryUpdated,
         alertsCreated,
+        journeyEventsCreated,
         debug: debugEnabled ? {
           xmlRequest: lastXmlRequestMasked,
           xmlResponsePreview: responseText.slice(0, 5000),
           messages: telemetryMessages.slice(0, 10),
+          journeySettings,
         } : undefined,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

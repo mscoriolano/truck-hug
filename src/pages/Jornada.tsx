@@ -4,13 +4,14 @@ import { DriverStatusCard } from '@/components/dashboard/DriverStatusCard';
 import { JourneyComplianceCard } from '@/components/journey/JourneyComplianceCard';
 import { JourneyEventButton } from '@/components/journey/JourneyEventButton';
 import { JourneyStatsCard } from '@/components/journey/JourneyStatsCard';
+import { JourneySettingsForm } from '@/components/journey/JourneySettingsForm';
 import { useDrivers } from '@/hooks/useDrivers';
 import { useJourneyEntries } from '@/hooks/useJourneyEntries';
 import { useJourneyCompliance, useJourneyStats, useJourneyLegalSettings } from '@/hooks/useJourneyCompliance';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Clock, Play, Pause, Square, MapPin, User, RefreshCw, AlertTriangle, Settings, Calendar } from 'lucide-react';
+import { Clock, Play, Pause, Square, MapPin, User, RefreshCw, AlertTriangle, Settings, Calendar, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -75,6 +76,24 @@ const Jornada = () => {
       subtitle="Acompanhe a jornada dos motoristas em tempo real"
     >
       <div className="space-y-6 animate-fade-in">
+        {/* Explicação do Sistema */}
+        <div className="p-4 rounded-xl bg-info/10 border border-info/30">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-info mt-0.5 shrink-0" />
+            <div className="space-y-2">
+              <h3 className="font-semibold text-foreground">Como Funciona o Controle de Jornada</h3>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p><strong>📱 Via Macro do Rastreador:</strong> Quando o motorista pressiona uma macro configurada (M1, M2, M3, M4) no rastreador, o evento é capturado automaticamente via telemetria.</p>
+                <p><strong>📝 Via Portal do Motorista:</strong> O motorista também pode registrar manualmente os eventos pelo Portal do Motorista na aba Jornada.</p>
+                <p><strong>⚖️ Conformidade Legal:</strong> O sistema calcula automaticamente horas trabalhadas, extras, descanso interjornada (mín. 11h) e semanal (35h/6 dias).</p>
+              </div>
+              <div className="pt-2">
+                <JourneySettingsForm />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Estatísticas */}
         {stats && <JourneyStatsCard stats={stats} loading={statsLoading} />}
 
@@ -94,7 +113,7 @@ const Jornada = () => {
 
         {/* Ações Rápidas */}
         <div className="flex flex-wrap items-center gap-2 p-4 rounded-xl bg-card border border-border">
-          <span className="text-sm font-medium text-foreground mr-2">Registrar:</span>
+          <span className="text-sm font-medium text-foreground mr-2">Registrar (Admin):</span>
           <JourneyEventButton eventType="journey_start" variant="compact" />
           <JourneyEventButton eventType="break_start" variant="compact" />
           <JourneyEventButton eventType="break_end" variant="compact" />

@@ -10,6 +10,7 @@ import { MaintenanceRequestForm } from '@/components/driver-portal/MaintenanceRe
 import { ExpenseClaimForm } from '@/components/driver-portal/ExpenseClaimForm';
 import { DeliveryReceiptForm } from '@/components/driver-portal/DeliveryReceiptForm';
 import { FuelReportForm } from '@/components/driver-portal/FuelReportForm';
+import { JourneyEventForm } from '@/components/driver-portal/JourneyEventForm';
 import { 
   useDriverTireReports, 
   useDriverMaintenanceRequests, 
@@ -87,6 +88,9 @@ const PortalMotorista: React.FC = () => {
       subtitle="Registre ocorrências, abastecimentos e solicite reembolsos"
     >
       <div className="space-y-6">
+        {/* Journey Control - Full Width */}
+        <JourneyEventForm />
+
         {/* Action Buttons */}
         <Card>
           <CardHeader>
