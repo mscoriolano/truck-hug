@@ -38,7 +38,7 @@ export interface JourneyEvent {
   location_name: string | null;
   mileage: number | null;
   source: string;
-  raw_data: Record<string, unknown> | null;
+  raw_data: unknown;
   created_at: string;
 }
 
@@ -171,17 +171,71 @@ export const useCreateJourneyEvent = () => {
   });
 };
 
+// Hook para atualizar evento de jornada
+export const useUpdateJourneyEvent = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ id, raw_data, ...input }: Partial<JourneyEvent> & { id: string }) => {
+      // Excluir raw_data pois não precisamos atualizá-lo
+      const { data, error } = await supabase
+        .from('driver_journey_events')
+        .update(input)
+        .eq('id', id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['journey_events'] });
+      queryClient.invalidateQueries({ queryKey: ['journey_compliance'] });
+      toast.success('Evento atualizado!');
+    },
+    onError: (error) => {
+      toast.error('Erro ao atualizar evento: ' + error.message);
+    },
+  });
+};
+
+// Hook para excluir evento de jornada
+export const useDeleteJourneyEvent = () => {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('driver_journey_events')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['journey_events'] });
+      queryClient.invalidateQueries({ queryKey: ['journey_compliance'] });
+      toast.success('Evento excluído!');
+    },
+    onError: (error) => {
+      toast.error('Erro ao excluir evento: ' + error.message);
+    },
+  });
+};
+
 // Função para atualizar conformidade baseada em eventos
 async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) {
-  const today = new Date().toISOString().split('T')[0];
-  const eventTime = event.event_timestamp || new Date().toISOString();
+  // Usar data do evento se informada, senão usar data atual
+  const eventTimestamp = event.event_timestamp ? new Date(event.event_timestamp) : new Date();
+  const journeyDate = eventTimestamp.toISOString().split('T')[0];
+  const eventTime = eventTimestamp.toISOString();
   
-  // Buscar registro existente para hoje
+  // Buscar registro existente para a data do evento
   const { data: existing } = await supabase
     .from('driver_journey_compliance')
     .select('*')
     .eq('driver_id', event.driver_id)
-    .eq('journey_date', today)
+    .eq('journey_date', journeyDate)
     .single();
   
   // Buscar configurações legais
@@ -206,14 +260,14 @@ async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) 
         .from('driver_journey_compliance')
         .select('journey_end')
         .eq('driver_id', event.driver_id)
-        .lt('journey_date', today)
+        .lt('journey_date', journeyDate)
         .order('journey_date', { ascending: false })
         .limit(1)
         .single();
       
       if (lastJourney?.journey_end) {
         const restMinutes = Math.floor(
-          (new Date(eventTime).getTime() - new Date(lastJourney.journey_end).getTime()) / 60000
+          (eventTimestamp.getTime() - new Date(lastJourney.journey_end).getTime()) / 60000
         );
         updates.inter_journey_rest_minutes = restMinutes;
         updates.is_inter_journey_compliant = restMinutes >= minInterJourneyMinutes;
@@ -226,7 +280,7 @@ async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) 
       // Calcular tempo trabalhado
       if (existing.journey_start) {
         const workedMinutes = Math.floor(
-          (new Date(eventTime).getTime() - new Date(existing.journey_start).getTime()) / 60000
+          (eventTimestamp.getTime() - new Date(existing.journey_start).getTime()) / 60000
         ) - (existing.total_break_minutes || 0);
         
         updates.total_worked_minutes = workedMinutes;
@@ -242,7 +296,7 @@ async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) 
     if (event.event_type === 'break_end' && existing.break_start) {
       updates.break_end = eventTime;
       const breakMinutes = Math.floor(
-        (new Date(eventTime).getTime() - new Date(existing.break_start).getTime()) / 60000
+        (eventTimestamp.getTime() - new Date(existing.break_start).getTime()) / 60000
       );
       updates.total_break_minutes = (existing.total_break_minutes || 0) + breakMinutes;
     }
@@ -258,7 +312,7 @@ async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) 
     const newCompliance = {
       driver_id: event.driver_id,
       driver_name: event.driver_name,
-      journey_date: today,
+      journey_date: journeyDate,
       journey_start: eventTime,
       source: event.source || 'manual',
     };
@@ -274,7 +328,7 @@ async function updateJourneyComplianceFromEvent(event: CreateJourneyEventInput) 
     
     if (lastJourney?.journey_end) {
       const restMinutes = Math.floor(
-        (new Date(eventTime).getTime() - new Date(lastJourney.journey_end).getTime()) / 60000
+        (eventTimestamp.getTime() - new Date(lastJourney.journey_end).getTime()) / 60000
       );
       Object.assign(newCompliance, {
         inter_journey_rest_minutes: restMinutes,
