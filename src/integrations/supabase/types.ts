@@ -1793,6 +1793,7 @@ export type Database = {
           heading: number | null
           id: string
           ignition_on: boolean | null
+          last_mld: number | null
           latitude: number | null
           longitude: number | null
           odometer: number | null
@@ -1812,6 +1813,7 @@ export type Database = {
           heading?: number | null
           id?: string
           ignition_on?: boolean | null
+          last_mld?: number | null
           latitude?: number | null
           longitude?: number | null
           odometer?: number | null
@@ -1831,6 +1833,7 @@ export type Database = {
           heading?: number | null
           id?: string
           ignition_on?: boolean | null
+          last_mld?: number | null
           latitude?: number | null
           longitude?: number | null
           odometer?: number | null
