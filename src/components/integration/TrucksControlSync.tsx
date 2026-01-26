@@ -47,6 +47,22 @@ interface SyncResult {
   };
 }
 
+interface TelemetryResult {
+  success: boolean;
+  timestamp: string;
+  error?: string;
+  messagesReceived?: number;
+  telemetryUpdated?: number;
+  alertsCreated?: number;
+  journeyEventsCreated?: number;
+  debug?: {
+    publicIp?: string | null;
+    rawError?: string;
+    networkType?: string;
+    requestXmlMasked?: string;
+  };
+}
+
 function downloadTextFile(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -62,6 +78,7 @@ function downloadTextFile(filename: string, content: string) {
 export function TrucksControlSync() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
+  const [lastTelemetry, setLastTelemetry] = useState<TelemetryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [includeSensitive, setIncludeSensitive] = useState(false);
@@ -71,27 +88,55 @@ export function TrucksControlSync() {
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('truckscontrol-sync', {
-        body: {
-          debug: debugMode,
-          includeSensitive,
-        },
-      });
+      const [syncRes, telemetryRes] = await Promise.all([
+        supabase.functions.invoke('truckscontrol-sync', {
+          body: {
+            debug: debugMode,
+            includeSensitive,
+          },
+        }),
+        supabase.functions.invoke('truckscontrol-telemetry', {
+          body: {
+            debug: debugMode,
+          },
+        }),
+      ]);
 
-      if (fnError) {
-        throw fnError;
+      if (syncRes.error) {
+        throw syncRes.error;
       }
 
-      setLastSync(data as SyncResult);
+      setLastSync(syncRes.data as SyncResult);
+      if (!telemetryRes.error) {
+        setLastTelemetry(telemetryRes.data as TelemetryResult);
+      } else {
+        // Mantém o erro de telemetria dentro do card (sem quebrar toda a sincronização)
+        setLastTelemetry({
+          success: false,
+          timestamp: new Date().toISOString(),
+          error: telemetryRes.error.message,
+        });
+      }
 
-      if (data.success) {
-        if (data.vehiclesReceived === 0 && data.journeyEventsReceived === 0) {
+      const telemetryFirewallError =
+        (telemetryRes.data as TelemetryResult | null)?.error?.includes('Erro de Firewall') ||
+        telemetryRes.error?.message?.includes('Failed to fetch');
+
+      if (telemetryFirewallError) {
+        toast.error('Telemetria bloqueada', {
+          description: 'Erro de Firewall (Conexão Recusada). Veja logs para IP de saída.',
+        });
+        return;
+      }
+
+      if (syncRes.data?.success) {
+        if (syncRes.data.vehiclesReceived === 0 && syncRes.data.journeyEventsReceived === 0) {
           toast.warning('Sincronização concluída', {
             description: 'Nenhum dado foi recebido da API. Verifique a URL base e endpoints.',
           });
         } else {
           toast.success('Sincronização concluída!', {
-            description: `${data.vehiclesUpdated} veículos atualizados, ${data.journeyEntriesCreated} eventos criados`,
+            description: `${syncRes.data.vehiclesUpdated} veículos atualizados, ${syncRes.data.journeyEntriesCreated} eventos criados`,
           });
         }
       }
@@ -109,8 +154,16 @@ export function TrucksControlSync() {
   // Detecta se é erro de rate limit (código 7)
   const isRateLimitError = lastSync?.error?.includes('código 7') || lastSync?.error?.includes('tempo minimo');
 
+  const isTelemetryFirewallError =
+    lastTelemetry?.error?.includes('Erro de Firewall (Conexão Recusada)') ||
+    lastTelemetry?.error?.includes('Failed to fetch') ||
+    lastTelemetry?.debug?.networkType === 'FAILED_TO_FETCH' ||
+    lastTelemetry?.debug?.networkType === 'CONNECTION_REFUSED' ||
+    lastTelemetry?.debug?.networkType === 'TLS_HANDSHAKE_FAILED';
+
   const getStatusBadge = () => {
     if (!lastSync) return <Badge variant="secondary">Aguardando</Badge>;
+    if (isTelemetryFirewallError) return <Badge variant="destructive">Erro de Firewall</Badge>;
     if (isRateLimitError) {
       return (
         <Badge variant="outline" className="border-amber-500 text-amber-600">

@@ -379,6 +379,36 @@ serve(async (req) => {
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
     // ==========================================
+    // PASSO 1.5: Logar IP público de saída (diagnóstico de firewall)
+    // ==========================================
+    let publicIp: string | null = null;
+    try {
+      const ipController = new AbortController();
+      const ipTimeout = setTimeout(() => ipController.abort(), 4000);
+
+      const ipRes = await fetch("https://api.ipify.org?format=json", {
+        method: "GET",
+        headers: {
+          // Mantém simples e consistente
+          "User-Agent": "Mozilla/5.0",
+        },
+        signal: ipController.signal,
+      });
+
+      clearTimeout(ipTimeout);
+
+      if (ipRes.ok) {
+        const json = (await ipRes.json()) as { ip?: string };
+        publicIp = json?.ip ?? null;
+        if (publicIp) console.log("IP de Saída:", publicIp);
+      } else {
+        console.warn("[truckscontrol-telemetry] ipify non-200", ipRes.status);
+      }
+    } catch (e) {
+      console.warn("[truckscontrol-telemetry] ipify failed", String(e));
+    }
+
+    // ==========================================
     // PASSO 2: Construir XML com a tag <mld>
     // ==========================================
     const requestVariants: Array<{ label: string; atributos?: string }> = [
@@ -427,18 +457,56 @@ serve(async (req) => {
         clearTimeout(timeout);
         // Log específico para erros de conexão/TLS
         const errMsg = String(fetchError);
+        const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
         const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
         const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
         const isAbort = /abort/i.test(errMsg);
         
+        const type = isFailedToFetch
+          ? "FAILED_TO_FETCH"
+          : isConnectionError
+            ? "CONNECTION_REFUSED"
+            : isTlsError
+              ? "TLS_HANDSHAKE_FAILED"
+              : isAbort
+                ? "TIMEOUT_ABORTED"
+                : "UNKNOWN";
+
         console.error("[truckscontrol-telemetry] NETWORK ERROR", {
-          type: isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN",
+          type,
           message: errMsg,
           endpoint: webserviceUrl,
+          publicIp,
           timestamp: new Date().toISOString(),
         });
-        
-        throw fetchError;
+
+        // Se o fetch falhar com "Failed to fetch" (bloqueio/erro de rede), retornamos uma resposta
+        // tratável pelo Dashboard, em vez de 500 genérico.
+        const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+        const friendly = isFirewallLike
+          ? "Erro de Firewall (Conexão Recusada)"
+          : isAbort
+            ? "Timeout ao conectar na TrucksControl"
+            : "Erro de rede ao conectar na TrucksControl";
+
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: friendly,
+            timestamp: new Date().toISOString(),
+            endpoint: webserviceUrl,
+            debug: debugEnabled
+              ? {
+                  publicIp,
+                  variant: variant.label,
+                  requestXmlMasked: lastXmlRequestMasked,
+                  rawError: errMsg,
+                  networkType: type,
+                }
+              : undefined,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       } finally {
         clearTimeout(timeout);
       }
