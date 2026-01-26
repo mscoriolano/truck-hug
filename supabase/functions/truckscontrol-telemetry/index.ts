@@ -401,7 +401,10 @@ serve(async (req) => {
       });
       lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
 
-      console.log("[truckscontrol-telemetry] sending XML with mld=" + lastMld);
+      // Log completo do XML (senha mascarada) - sempre logado para debug
+      console.log("[truckscontrol-telemetry] XML REQUEST:");
+      console.log(lastXmlRequestMasked);
+      console.log("[truckscontrol-telemetry] endpoint:", webserviceUrl);
 
       const controller = new AbortController();
       const timeoutMs = 60_000; // 60 segundos conforme solicitado
