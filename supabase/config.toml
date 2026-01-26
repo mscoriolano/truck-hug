@@ -5,3 +5,42 @@ verify_jwt = false
 
 [functions.truckscontrol-telemetry]
 verify_jwt = false
+
+[functions.truckscontrol-motoristas]
+verify_jwt = false
+
+[functions.truckscontrol-comando]
+verify_jwt = false
+
+[functions.truckscontrol-acessorios]
+verify_jwt = false
+
+[functions.truckscontrol-alertas]
+verify_jwt = false
+
+[functions.truckscontrol-macro]
+verify_jwt = false
+
+[functions.truckscontrol-espelhamento]
+verify_jwt = false
+
+[functions.truckscontrol-horario]
+verify_jwt = false
+
+[functions.truckscontrol-telemetria-historico]
+verify_jwt = false
+
+[functions.truckscontrol-spy]
+verify_jwt = false
+
+[functions.truckscontrol-ie]
+verify_jwt = false
+
+[functions.truckscontrol-referencia-entrega]
+verify_jwt = false
+
+[functions.truckscontrol-smartvision]
+verify_jwt = false
+
+[functions.truckscontrol-acessorios-veiculo]
+verify_jwt = false
