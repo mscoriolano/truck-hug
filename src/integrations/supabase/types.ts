@@ -202,6 +202,72 @@ export type Database = {
           },
         ]
       }
+      driver_journey: {
+        Row: {
+          created_at: string
+          driver_id: string | null
+          driver_name: string
+          event_timestamp: string
+          event_type: string
+          id: string
+          latitude: number | null
+          longitude: number | null
+          mileage: number | null
+          raw_data: Json | null
+          source: string | null
+          tfr_id: string | null
+          vehicle_id: string | null
+          vehicle_plate: string | null
+        }
+        Insert: {
+          created_at?: string
+          driver_id?: string | null
+          driver_name: string
+          event_timestamp?: string
+          event_type: string
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          mileage?: number | null
+          raw_data?: Json | null
+          source?: string | null
+          tfr_id?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string | null
+          driver_name?: string
+          event_timestamp?: string
+          event_type?: string
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          mileage?: number | null
+          raw_data?: Json | null
+          source?: string | null
+          tfr_id?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_journey_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_journey_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_journey_compliance: {
         Row: {
           break_end: string | null
@@ -808,6 +874,59 @@ export type Database = {
         }
         Relationships: []
       }
+      maintenance_costs: {
+        Row: {
+          amount: number
+          cost_date: string
+          cost_type: string
+          created_at: string
+          description: string
+          id: string
+          invoice_number: string | null
+          notes: string | null
+          supplier: string | null
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          amount?: number
+          cost_date?: string
+          cost_type: string
+          created_at?: string
+          description: string
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          supplier?: string | null
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          amount?: number
+          cost_date?: string
+          cost_type?: string
+          created_at?: string
+          description?: string
+          id?: string
+          invoice_number?: string | null
+          notes?: string | null
+          supplier?: string | null
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_costs_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       maintenances: {
         Row: {
           category: string
@@ -1253,6 +1372,83 @@ export type Database = {
         }
         Relationships: []
       }
+      tire_management: {
+        Row: {
+          brand: string
+          created_at: string
+          current_mileage: number
+          id: string
+          install_date: string
+          install_mileage: number
+          last_inspection: string | null
+          max_mileage: number
+          min_tread_depth: number | null
+          model: string
+          notes: string | null
+          position: string
+          recapped_count: number | null
+          serial_number: string | null
+          status: string
+          tread_depth: number | null
+          updated_at: string
+          vehicle_id: string
+          vehicle_plate: string
+          warning_tread_depth: number | null
+        }
+        Insert: {
+          brand: string
+          created_at?: string
+          current_mileage?: number
+          id?: string
+          install_date?: string
+          install_mileage?: number
+          last_inspection?: string | null
+          max_mileage?: number
+          min_tread_depth?: number | null
+          model: string
+          notes?: string | null
+          position: string
+          recapped_count?: number | null
+          serial_number?: string | null
+          status?: string
+          tread_depth?: number | null
+          updated_at?: string
+          vehicle_id: string
+          vehicle_plate: string
+          warning_tread_depth?: number | null
+        }
+        Update: {
+          brand?: string
+          created_at?: string
+          current_mileage?: number
+          id?: string
+          install_date?: string
+          install_mileage?: number
+          last_inspection?: string | null
+          max_mileage?: number
+          min_tread_depth?: number | null
+          model?: string
+          notes?: string | null
+          position?: string
+          recapped_count?: number | null
+          serial_number?: string | null
+          status?: string
+          tread_depth?: number | null
+          updated_at?: string
+          vehicle_id?: string
+          vehicle_plate?: string
+          warning_tread_depth?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tire_management_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tires: {
         Row: {
           brand: string
@@ -1501,6 +1697,90 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      vehicle_can_data: {
+        Row: {
+          created_at: string
+          data_timestamp: string
+          driver_id: string | null
+          driver_name: string | null
+          fuel_level: number | null
+          g_force_x: number | null
+          g_force_y: number | null
+          g_force_z: number | null
+          harsh_acceleration: boolean | null
+          harsh_braking: boolean | null
+          harsh_cornering: boolean | null
+          id: string
+          odometer: number | null
+          raw_data: Json | null
+          rpm: number | null
+          rpm_violation: boolean | null
+          speed: number | null
+          speed_violation: boolean | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          created_at?: string
+          data_timestamp?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          fuel_level?: number | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          harsh_acceleration?: boolean | null
+          harsh_braking?: boolean | null
+          harsh_cornering?: boolean | null
+          id?: string
+          odometer?: number | null
+          raw_data?: Json | null
+          rpm?: number | null
+          rpm_violation?: boolean | null
+          speed?: number | null
+          speed_violation?: boolean | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          created_at?: string
+          data_timestamp?: string
+          driver_id?: string | null
+          driver_name?: string | null
+          fuel_level?: number | null
+          g_force_x?: number | null
+          g_force_y?: number | null
+          g_force_z?: number | null
+          harsh_acceleration?: boolean | null
+          harsh_braking?: boolean | null
+          harsh_cornering?: boolean | null
+          id?: string
+          odometer?: number | null
+          raw_data?: Json | null
+          rpm?: number | null
+          rpm_violation?: boolean | null
+          speed?: number | null
+          speed_violation?: boolean | null
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_can_data_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_can_data_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       vehicle_telemetry: {
         Row: {

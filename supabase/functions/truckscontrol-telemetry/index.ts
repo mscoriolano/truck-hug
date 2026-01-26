@@ -20,8 +20,14 @@ interface TelemetryMessage {
   odometro?: number;
   dataHora?: string;
   motorista?: string;
-  macro?: string; // Código de macro M1, M2, M3, M4, etc.
-  evento?: string; // Tipo de evento
+  motID?: string; // ID do motorista no TrucksControl
+  macro?: string;
+  tpMsg?: number; // Tipo de mensagem (3 = Macro)
+  tfrID?: string; // ID do formulário de macro
+  rpm?: number;
+  lt?: number; // litros no tanque
+  evt34?: boolean; // excesso de velocidade
+  evt35?: boolean; // excesso de RPM
 }
 
 interface JourneyLegalSettings {
@@ -42,7 +48,7 @@ interface TelemetrySettings {
 
 type InputBody = {
   debug?: boolean;
-  veiID?: string; // Para buscar apenas um veículo específico
+  veiID?: string;
 };
 
 // ============ XML helpers ============
@@ -79,7 +85,6 @@ function buildTelemetryRequestXml(
   password: string,
   opts?: { veiID?: string; atributos?: string },
 ): string {
-  // RequestMensagemCB para obter telemetria
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
@@ -89,8 +94,6 @@ function buildTelemetryRequestXml(
     xml += `\n  <veiID>${escapeXml(opts.veiID)}</veiID>`;
   }
 
-  // Alguns ambientes do TrucksControl exigem explicitamente os atributos retornados.
-  // Mantemos como opcional e tentamos algumas variações.
   if (opts?.atributos) {
     xml += `\n  <atributos>${escapeXml(opts.atributos)}</atributos>`;
   }
@@ -98,7 +101,6 @@ function buildTelemetryRequestXml(
   xml += `\n</RequestMensagemCB>`;
   return xml;
 }
-
 
 function maskPasswordInXml(xml: string): string {
   return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
@@ -277,6 +279,17 @@ async function safeJson(req: Request): Promise<InputBody> {
   }
 }
 
+// Mapeamento de tfrID (macros) para tipos de evento de jornada
+const JOURNEY_MACRO_MAP: Record<string, string> = {
+  // Estes valores devem ser configurados conforme o TrucksControl do cliente
+  // Exemplos comuns:
+  "1": "journey_start",  // Início de Jornada
+  "2": "meal",           // Refeição
+  "3": "rest",           // Descanso
+  "4": "overnight",      // Pernoite
+  "5": "journey_end",    // Fim de Jornada
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -333,12 +346,9 @@ serve(async (req) => {
 
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
-    // A TrucksControl às vezes retorna erro de "atributos inválidos" quando o RequestMensagemCB
-    // não informa explicitamente quais campos deseja retornar. Por isso fazemos tentativas com fallback.
     const requestVariants: Array<{ label: string; atributos?: string }> = [
       { label: "no_atributos" },
       { label: "atributos_all", atributos: "all" },
-      // fallback mais comum (se 'all' não for aceito)
       { label: "atributos_common", atributos: "veiID,placa,latitude,longitude,velocidade,ignicao,odometro,dataHora" },
     ];
 
@@ -361,7 +371,7 @@ serve(async (req) => {
       lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
 
       const controller = new AbortController();
-      const timeoutMs = 45_000;
+      const timeoutMs = 60_000; // Aumentado para 60s
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       let response: Response;
@@ -403,15 +413,12 @@ serve(async (req) => {
         hasError: Boolean(apiErr),
       });
 
-      // Se não teve erro, seguimos.
       if (!apiErr) break;
 
-      // Se o erro é de atributos, tentamos a próxima variante.
       if (/atribut/i.test(apiErr)) {
         continue;
       }
 
-      // Para outros erros, já retornamos.
       return new Response(
         JSON.stringify({
           success: false,
@@ -456,7 +463,6 @@ serve(async (req) => {
       );
     }
 
-
     // Parsear mensagens de telemetria
     const telemetryMessages: TelemetryMessage[] = [];
     const messageNodes = parseXmlArray(responseText, "Mensagem") || 
@@ -469,9 +475,20 @@ serve(async (req) => {
       const vel = parseInt(parseXmlValue(msgXml, "velocidade") || parseXmlValue(msgXml, "vel") || "0", 10);
       const ign = parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
-      const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odo") || "0", 10);
+      const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odm") || parseXmlValue(msgXml, "odo") || "0", 10);
       
-      // Buscar código de macro (M1, M2, M3, M4, etc.)
+      // Tipo de mensagem (tpMsg = 3 indica Macro)
+      const tpMsg = parseInt(parseXmlValue(msgXml, "tpMsg") || "0", 10);
+      const tfrID = parseXmlValue(msgXml, "tfrID") || parseXmlValue(msgXml, "tfrid");
+      const motID = parseXmlValue(msgXml, "motID") || parseXmlValue(msgXml, "motid");
+      
+      // Dados CAN
+      const rpm = parseInt(parseXmlValue(msgXml, "rpm") || "0", 10);
+      const lt = parseFloat(parseXmlValue(msgXml, "lt") || "0"); // litros no tanque
+      const evt34Raw = parseXmlValue(msgXml, "evt34");
+      const evt35Raw = parseXmlValue(msgXml, "evt35");
+      
+      // Buscar código de macro
       const macro = parseXmlValue(msgXml, "macro") || 
                     parseXmlValue(msgXml, "MACRO") || 
                     parseXmlValue(msgXml, "codigoMacro") ||
@@ -491,7 +508,14 @@ serve(async (req) => {
         odometro: odo,
         dataHora: parseXmlValue(msgXml, "dataHora") || parseXmlValue(msgXml, "data") || undefined,
         motorista: parseXmlValue(msgXml, "mot") || parseXmlValue(msgXml, "motorista") || undefined,
+        motID: motID || undefined,
         macro: macro || undefined,
+        tpMsg: tpMsg,
+        tfrID: tfrID || undefined,
+        rpm: rpm || undefined,
+        lt: lt || undefined,
+        evt34: evt34Raw === "1" || evt34Raw === "true",
+        evt35: evt35Raw === "1" || evt35Raw === "true",
       };
 
       if (msg.placa || msg.veiID) {
@@ -512,6 +536,8 @@ serve(async (req) => {
     let telemetryUpdated = 0;
     let alertsCreated = 0;
     let journeyEventsCreated = 0;
+    let vehicleMileageUpdated = 0;
+    let canDataInserted = 0;
 
     for (const msg of telemetryMessages) {
       if (!msg.placa) continue;
@@ -519,7 +545,7 @@ serve(async (req) => {
       // Buscar veículo
       const { data: vehicle } = await supabase
         .from("vehicles")
-        .select("id, plate")
+        .select("id, plate, mileage")
         .eq("plate", msg.placa)
         .maybeSingle();
 
@@ -555,17 +581,16 @@ serve(async (req) => {
       if (!telemetryError) {
         telemetryUpdated++;
 
-        // Atualizar quilometragem do veículo se odômetro disponível
-        if (msg.odometro && msg.odometro > 0) {
+        // AUTOMAÇÃO: Atualizar hodômetro do veículo
+        if (msg.odometro && msg.odometro > 0 && msg.odometro > (vehicle.mileage || 0)) {
           const { error: updateMileageError } = await supabase
             .from("vehicles")
             .update({ mileage: msg.odometro })
             .eq("id", vehicle.id);
           
-          if (updateMileageError) {
-            console.error(`[truckscontrol-telemetry] Erro ao atualizar km do veículo ${msg.placa}:`, updateMileageError);
-          } else {
-            console.log(`[truckscontrol-telemetry] Odômetro atualizado: ${msg.placa} = ${msg.odometro} km`);
+          if (!updateMileageError) {
+            vehicleMileageUpdated++;
+            console.log(`[truckscontrol-telemetry] Hodômetro atualizado: ${msg.placa} = ${msg.odometro} km`);
           }
         }
 
@@ -582,6 +607,26 @@ serve(async (req) => {
           ignition_on: msg.ignicao,
           gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
         });
+
+        // AUTOMAÇÃO: Armazenar dados CAN se disponíveis
+        if (msg.rpm || msg.lt || msg.evt34 || msg.evt35) {
+          const { error: canError } = await supabase.from("vehicle_can_data").insert({
+            vehicle_id: vehicle.id,
+            vehicle_plate: msg.placa,
+            driver_id: assignment?.driver_id,
+            driver_name: assignment?.driver_name || msg.motorista,
+            data_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
+            rpm: msg.rpm || null,
+            speed: msg.velocidade || null,
+            fuel_level: msg.lt || null,
+            odometer: msg.odometro || null,
+            speed_violation: msg.evt34 || false,
+            rpm_violation: msg.evt35 || false,
+            raw_data: { rpm: msg.rpm, lt: msg.lt, evt34: msg.evt34, evt35: msg.evt35, tpMsg: msg.tpMsg },
+          });
+          
+          if (!canError) canDataInserted++;
+        }
 
         // Verificar alertas de velocidade
         if (msg.velocidade && msg.velocidade > settings.speed_limit_highway) {
@@ -604,14 +649,39 @@ serve(async (req) => {
           if (!alertError) alertsCreated++;
         }
 
-        // Processar macro de jornada se configurado
+        // AUTOMAÇÃO: Processar mensagens de Macro (tpMsg = 3)
+        if (msg.tpMsg === 3 && msg.tfrID) {
+          const eventType = JOURNEY_MACRO_MAP[msg.tfrID];
+          
+          if (eventType && assignment?.driver_id) {
+            console.log(`[truckscontrol-telemetry] Macro tfrID=${msg.tfrID} -> ${eventType} para motorista ${assignment.driver_name}`);
+            
+            // Inserir na tabela driver_journey
+            const { error: journeyError } = await supabase.from("driver_journey").insert({
+              driver_id: assignment.driver_id,
+              driver_name: assignment.driver_name,
+              vehicle_id: vehicle.id,
+              vehicle_plate: msg.placa,
+              event_type: eventType,
+              tfr_id: msg.tfrID,
+              event_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
+              latitude: msg.latitude,
+              longitude: msg.longitude,
+              mileage: msg.odometro,
+              source: 'telemetry',
+              raw_data: { tpMsg: msg.tpMsg, tfrID: msg.tfrID, motID: msg.motID },
+            });
+            
+            if (!journeyError) journeyEventsCreated++;
+          }
+        }
+
+        // Processar macro de jornada configurado nas settings
         if (msg.macro && assignment?.driver_id && journeySettings) {
           let journeyEventType: string | null = null;
           
-          // Normalizar macro para comparação (uppercase, sem espaços)
           const macroNormalized = msg.macro.toUpperCase().trim();
           
-          // Verificar se a macro corresponde a um evento de jornada
           if (journeySettings.macro_journey_start && 
               macroNormalized === journeySettings.macro_journey_start.toUpperCase().trim()) {
             journeyEventType = 'journey_start';
@@ -629,7 +699,6 @@ serve(async (req) => {
           if (journeyEventType) {
             console.log(`[truckscontrol-telemetry] Macro ${msg.macro} -> ${journeyEventType} para motorista ${assignment.driver_name}`);
             
-            // Inserir evento de jornada
             const { error: journeyError } = await supabase.from("driver_journey_events").insert({
               driver_id: assignment.driver_id,
               driver_name: assignment.driver_name,
@@ -672,7 +741,6 @@ serve(async (req) => {
               const today = new Date().toISOString().split('T')[0];
               const eventTime = msg.dataHora ? new Date(msg.dataHora).toISOString() : new Date().toISOString();
               
-              // Verificar se já existe registro para hoje
               const { data: existingCompliance } = await supabase
                 .from("driver_journey_compliance")
                 .select("*")
@@ -681,7 +749,6 @@ serve(async (req) => {
                 .single();
               
               if (existingCompliance) {
-                // Atualizar registro existente
                 const updates: Record<string, unknown> = {};
                 
                 if (journeyEventType === 'journey_start' && !existingCompliance.journey_start) {
@@ -693,8 +760,8 @@ serve(async (req) => {
                       (new Date(eventTime).getTime() - new Date(existingCompliance.journey_start).getTime()) / 60000
                     ) - (existingCompliance.total_break_minutes || 0);
                     updates.total_worked_minutes = workedMinutes;
-                    updates.overtime_minutes = Math.max(0, workedMinutes - 480); // 8h = 480min
-                    updates.is_overtime_compliant = (updates.overtime_minutes as number) <= 120; // 2h max
+                    updates.overtime_minutes = Math.max(0, workedMinutes - 480);
+                    updates.is_overtime_compliant = (updates.overtime_minutes as number) <= 120;
                   }
                 } else if (journeyEventType === 'break_start') {
                   updates.break_start = eventTime;
@@ -714,7 +781,6 @@ serve(async (req) => {
                     .eq("id", existingCompliance.id);
                 }
               } else if (journeyEventType === 'journey_start') {
-                // Criar novo registro
                 await supabase.from("driver_journey_compliance").insert({
                   driver_id: assignment.driver_id,
                   driver_name: assignment.driver_name,
@@ -723,8 +789,6 @@ serve(async (req) => {
                   source: 'telemetry_macro',
                 });
               }
-            } else {
-              console.error(`[truckscontrol-telemetry] Erro ao criar evento de jornada:`, journeyError);
             }
           }
         }
@@ -736,6 +800,8 @@ serve(async (req) => {
       telemetryUpdated,
       alertsCreated,
       journeyEventsCreated,
+      vehicleMileageUpdated,
+      canDataInserted,
     });
 
     return new Response(
@@ -746,6 +812,8 @@ serve(async (req) => {
         telemetryUpdated,
         alertsCreated,
         journeyEventsCreated,
+        vehicleMileageUpdated,
+        canDataInserted,
         debug: debugEnabled ? {
           xmlRequest: lastXmlRequestMasked,
           xmlResponsePreview: responseText.slice(0, 5000),
