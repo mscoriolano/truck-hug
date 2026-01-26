@@ -20,14 +20,15 @@ interface TelemetryMessage {
   odometro?: number;
   dataHora?: string;
   motorista?: string;
-  motID?: string; // ID do motorista no TrucksControl
+  motID?: string;
   macro?: string;
-  tpMsg?: number; // Tipo de mensagem (3 = Macro)
-  tfrID?: string; // ID do formulário de macro
+  tpMsg?: number;
+  tfrID?: string;
   rpm?: number;
-  lt?: number; // litros no tanque
-  evt34?: boolean; // excesso de velocidade
-  evt35?: boolean; // excesso de RPM
+  lt?: number;
+  evt34?: boolean;
+  evt35?: boolean;
+  mld?: number; // ID da mensagem para persistência
 }
 
 interface JourneyLegalSettings {
@@ -80,15 +81,25 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/**
+ * Constrói o XML da requisição RequestMensagemCB
+ * IMPORTANTE: Inclui obrigatoriamente a tag <mld> conforme documentação TrucksControl
+ * - Na primeira execução: mld = 1
+ * - Nas execuções seguintes: mld = maior ID já processado
+ */
 function buildTelemetryRequestXml(
   user: string,
   password: string,
-  opts?: { veiID?: string; atributos?: string },
+  opts?: { veiID?: string; atributos?: string; mld?: number },
 ): string {
+  // mld default é 1 para primeira execução
+  const mldValue = opts?.mld ?? 1;
+  
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
-  <senha>${escapeXml(password)}</senha>`;
+  <senha>${escapeXml(password)}</senha>
+  <mld>${mldValue}</mld>`;
 
   if (opts?.veiID) {
     xml += `\n  <veiID>${escapeXml(opts.veiID)}</veiID>`;
@@ -281,13 +292,11 @@ async function safeJson(req: Request): Promise<InputBody> {
 
 // Mapeamento de tfrID (macros) para tipos de evento de jornada
 const JOURNEY_MACRO_MAP: Record<string, string> = {
-  // Estes valores devem ser configurados conforme o TrucksControl do cliente
-  // Exemplos comuns:
-  "1": "journey_start",  // Início de Jornada
-  "2": "meal",           // Refeição
-  "3": "rest",           // Descanso
-  "4": "overnight",      // Pernoite
-  "5": "journey_end",    // Fim de Jornada
+  "1": "journey_start",
+  "2": "meal",
+  "3": "rest",
+  "4": "overnight",
+  "5": "journey_end",
 };
 
 serve(async (req) => {
@@ -328,6 +337,29 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ==========================================
+    // PASSO 1: Buscar o maior mld já processado
+    // ==========================================
+    let lastMld = 1; // Default para primeira execução
+    
+    const { data: mldData, error: mldError } = await supabase
+      .from("vehicle_telemetry")
+      .select("last_mld")
+      .order("last_mld", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (!mldError && mldData?.last_mld && mldData.last_mld > 0) {
+      lastMld = mldData.last_mld;
+    }
+    
+    console.log("[truckscontrol-telemetry] start", {
+      ts: new Date().toISOString(),
+      debugEnabled,
+      veiID: input.veiID || "all",
+      lastMld,
+    });
+
     // Buscar configurações de telemetria
     const { data: settingsData } = await supabase
       .from("telemetry_settings")
@@ -346,17 +378,14 @@ serve(async (req) => {
 
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
+    // ==========================================
+    // PASSO 2: Construir XML com a tag <mld>
+    // ==========================================
     const requestVariants: Array<{ label: string; atributos?: string }> = [
       { label: "no_atributos" },
       { label: "atributos_all", atributos: "all" },
       { label: "atributos_common", atributos: "veiID,placa,latitude,longitude,velocidade,ignicao,odometro,dataHora" },
     ];
-
-    console.log("[truckscontrol-telemetry] start", {
-      ts: new Date().toISOString(),
-      debugEnabled,
-      veiID: input.veiID || "all",
-    });
 
     let responseText = "";
     let responseStatus = 0;
@@ -364,18 +393,23 @@ serve(async (req) => {
     let lastXmlRequestMasked = "";
 
     for (const variant of requestVariants) {
+      // Inclui a tag <mld> obrigatoriamente
       const xmlRequest = buildTelemetryRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, {
         veiID: input.veiID,
         atributos: variant.atributos,
+        mld: lastMld,
       });
       lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
 
+      console.log("[truckscontrol-telemetry] sending XML with mld=" + lastMld);
+
       const controller = new AbortController();
-      const timeoutMs = 60_000; // Aumentado para 60s
+      const timeoutMs = 60_000; // 60 segundos conforme solicitado
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       let response: Response;
       try {
+        // Envia como string bruta (naked XML) no corpo do POST
         response = await fetch(webserviceUrl, {
           method: "POST",
           headers: {
@@ -384,7 +418,7 @@ serve(async (req) => {
             "Accept-Encoding": "gzip, deflate",
             "User-Agent": "FleetApp/1.0",
           },
-          body: xmlRequest,
+          body: xmlRequest, // XML bruto, sem encapsulamento JSON
           signal: controller.signal,
         });
       } finally {
@@ -411,6 +445,7 @@ serve(async (req) => {
         contentType: responseContentType,
         bytes: limited.bytes.length,
         hasError: Boolean(apiErr),
+        mldUsed: lastMld,
       });
 
       if (!apiErr) break;
@@ -430,6 +465,7 @@ serve(async (req) => {
                 status: responseStatus,
                 contentType: responseContentType,
                 xmlResponse: responseText.slice(0, 5000),
+                mldUsed: lastMld,
               }
             : undefined,
         }),
@@ -451,6 +487,7 @@ serve(async (req) => {
           success: false,
           error: lastApiError,
           timestamp: new Date().toISOString(),
+          mldUsed: lastMld,
           debug: debugEnabled
             ? {
                 status: responseStatus,
@@ -469,6 +506,11 @@ serve(async (req) => {
                          parseXmlArray(responseText, "MensagemCB") ||
                          parseXmlArray(responseText, "Veiculo");
 
+    // ==========================================
+    // PASSO 3: Processar mensagens e extrair mld
+    // ==========================================
+    let maxMldReceived = lastMld;
+
     for (const msgXml of messageNodes) {
       const lat = parseFloat(parseXmlValue(msgXml, "latitude") || parseXmlValue(msgXml, "lat") || "0");
       const lng = parseFloat(parseXmlValue(msgXml, "longitude") || parseXmlValue(msgXml, "lng") || parseXmlValue(msgXml, "lon") || "0");
@@ -477,18 +519,25 @@ serve(async (req) => {
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
       const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odm") || parseXmlValue(msgXml, "odo") || "0", 10);
       
-      // Tipo de mensagem (tpMsg = 3 indica Macro)
+      // Extrair mld da mensagem para persistência
+      const mldStr = parseXmlValue(msgXml, "mld") || parseXmlValue(msgXml, "MLD") || "0";
+      const mld = parseInt(mldStr, 10);
+      
+      // Atualizar o maior mld recebido
+      if (mld > maxMldReceived) {
+        maxMldReceived = mld;
+      }
+      
       const tpMsg = parseInt(parseXmlValue(msgXml, "tpMsg") || "0", 10);
       const tfrID = parseXmlValue(msgXml, "tfrID") || parseXmlValue(msgXml, "tfrid");
       const motID = parseXmlValue(msgXml, "motID") || parseXmlValue(msgXml, "motid");
       
       // Dados CAN
       const rpm = parseInt(parseXmlValue(msgXml, "rpm") || "0", 10);
-      const lt = parseFloat(parseXmlValue(msgXml, "lt") || "0"); // litros no tanque
+      const lt = parseFloat(parseXmlValue(msgXml, "lt") || "0");
       const evt34Raw = parseXmlValue(msgXml, "evt34");
       const evt35Raw = parseXmlValue(msgXml, "evt35");
       
-      // Buscar código de macro
       const macro = parseXmlValue(msgXml, "macro") || 
                     parseXmlValue(msgXml, "MACRO") || 
                     parseXmlValue(msgXml, "codigoMacro") ||
@@ -516,6 +565,7 @@ serve(async (req) => {
         lt: lt || undefined,
         evt34: evt34Raw === "1" || evt34Raw === "true",
         evt35: evt35Raw === "1" || evt35Raw === "true",
+        mld: mld || undefined,
       };
 
       if (msg.placa || msg.veiID) {
@@ -523,7 +573,7 @@ serve(async (req) => {
       }
     }
 
-    console.log("[truckscontrol-telemetry] parsed messages:", telemetryMessages.length);
+    console.log("[truckscontrol-telemetry] parsed messages:", telemetryMessages.length, "maxMld:", maxMldReceived);
     
     // Buscar configurações de jornada para macros
     const { data: journeySettings } = await supabase
@@ -559,7 +609,9 @@ serve(async (req) => {
         .eq("is_active", true)
         .maybeSingle();
 
-      // Inserir telemetria atual
+      // ==========================================
+      // PASSO 4: Salvar telemetria COM o last_mld
+      // ==========================================
       const { error: telemetryError } = await supabase
         .from("vehicle_telemetry")
         .upsert({
@@ -574,6 +626,7 @@ serve(async (req) => {
           odometer: msg.odometro,
           gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
           received_at: new Date(),
+          last_mld: msg.mld || maxMldReceived, // Salva o mld da mensagem ou o maior recebido
         }, {
           onConflict: "vehicle_id",
         });
@@ -622,7 +675,7 @@ serve(async (req) => {
             odometer: msg.odometro || null,
             speed_violation: msg.evt34 || false,
             rpm_violation: msg.evt35 || false,
-            raw_data: { rpm: msg.rpm, lt: msg.lt, evt34: msg.evt34, evt35: msg.evt35, tpMsg: msg.tpMsg },
+            raw_data: { rpm: msg.rpm, lt: msg.lt, evt34: msg.evt34, evt35: msg.evt35, tpMsg: msg.tpMsg, mld: msg.mld },
           });
           
           if (!canError) canDataInserted++;
@@ -669,7 +722,7 @@ serve(async (req) => {
               longitude: msg.longitude,
               mileage: msg.odometro,
               source: 'telemetry',
-              raw_data: { tpMsg: msg.tpMsg, tfrID: msg.tfrID, motID: msg.motID },
+              raw_data: { tpMsg: msg.tpMsg, tfrID: msg.tfrID, motID: msg.motID, mld: msg.mld },
             });
             
             if (!journeyError) journeyEventsCreated++;
@@ -711,7 +764,7 @@ serve(async (req) => {
               longitude: msg.longitude,
               mileage: msg.odometro,
               source: 'telemetry_macro',
-              raw_data: { macro: msg.macro, velocidade: msg.velocidade, ignicao: msg.ignicao },
+              raw_data: { macro: msg.macro, velocidade: msg.velocidade, ignicao: msg.ignicao, mld: msg.mld },
             });
             
             if (!journeyError) {
@@ -802,6 +855,8 @@ serve(async (req) => {
       journeyEventsCreated,
       vehicleMileageUpdated,
       canDataInserted,
+      previousMld: lastMld,
+      newMaxMld: maxMldReceived,
     });
 
     return new Response(
@@ -814,6 +869,11 @@ serve(async (req) => {
         journeyEventsCreated,
         vehicleMileageUpdated,
         canDataInserted,
+        mld: {
+          previousMld: lastMld,
+          newMaxMld: maxMldReceived,
+          info: "O próximo request usará mld=" + maxMldReceived,
+        },
         debug: debugEnabled ? {
           xmlRequest: lastXmlRequestMasked,
           xmlResponsePreview: responseText.slice(0, 5000),
