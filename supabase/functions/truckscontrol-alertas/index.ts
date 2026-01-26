@@ -115,42 +115,96 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Verificar erro de intervalo (código 7)
+    const codigo = parseXmlValue(responseText, "codigo");
+    if (codigo === "7") {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: "Intervalo de 60 minutos da Trucks Control ainda não atingido",
+        code: 7,
+        message: "A API da TrucksControl exige um intervalo mínimo de 60 minutos entre requisições."
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const alertaNodes = parseXmlArray(responseText, "AlertasSoftware") || parseXmlArray(responseText, "Acessorio");
     let alertasCreated = 0;
+    let vehiclesNotFound = 0;
 
     for (const alertaXml of alertaNodes) {
       const alsID = parseXmlValue(alertaXml, "alsID");
       const veiID = parseXmlValue(alertaXml, "veiID");
       const tdeID = parseXmlValue(alertaXml, "tdeID");
       const dtInc = parseXmlValue(alertaXml, "dtInc");
+      const placa = parseXmlValue(alertaXml, "placa");
+      const descricao = parseXmlValue(alertaXml, "descricao") || parseXmlValue(alertaXml, "desc");
+      const tipoAlerta = parseXmlValue(alertaXml, "tipoAlerta") || parseXmlValue(alertaXml, "tipo");
 
-      // Buscar veículo
-      const { data: vehicle } = await supabase
-        .from("vehicles")
-        .select("id, plate")
-        .limit(1)
-        .maybeSingle();
+      // CORREÇÃO: Buscar veículo com filtro específico (placa ou veiID)
+      let vehicle = null;
+      
+      if (placa) {
+        const { data } = await supabase
+          .from("vehicles")
+          .select("id, plate")
+          .eq("plate", placa)
+          .maybeSingle();
+        vehicle = data;
+      }
+      
+      // Se não encontrou por placa, tentar buscar por truckscontrol_id na telemetria
+      if (!vehicle && veiID) {
+        const { data: telemetry } = await supabase
+          .from("vehicle_telemetry")
+          .select("vehicle_id, vehicle_plate")
+          .eq("truckscontrol_id", veiID)
+          .maybeSingle();
+        
+        if (telemetry) {
+          vehicle = { id: telemetry.vehicle_id, plate: telemetry.vehicle_plate };
+        }
+      }
 
-      if (vehicle) {
-        await supabase.from("alerts").insert({
-          type: "truckscontrol",
-          severity: "warning",
-          title: `Alerta TrucksControl #${tdeID}`,
-          message: `Alerta de software ID ${alsID} para veículo ${veiID}`,
-          related_id: vehicle.id,
-          timestamp: dtInc || new Date().toISOString(),
-        });
+      if (!vehicle) {
+        vehiclesNotFound++;
+        console.log(`[truckscontrol-alertas] Veículo não encontrado: placa=${placa}, veiID=${veiID}`);
+        continue;
+      }
+
+      // Determinar severidade
+      let severity = "info";
+      if (tipoAlerta?.toLowerCase().includes("critic") || descricao?.toLowerCase().includes("critic")) {
+        severity = "critical";
+      } else if (tipoAlerta?.toLowerCase().includes("warn") || tipoAlerta?.toLowerCase().includes("aten")) {
+        severity = "warning";
+      }
+
+      const { error: insertError } = await supabase.from("alerts").insert({
+        type: "truckscontrol",
+        severity,
+        title: descricao || `Alerta TrucksControl #${tdeID || alsID}`,
+        message: `Alerta de software ID ${alsID} para veículo ${vehicle.plate} (veiID: ${veiID})`,
+        related_id: vehicle.id,
+        timestamp: dtInc || new Date().toISOString(),
+      });
+      
+      if (!insertError) {
         alertasCreated++;
+        console.log(`[truckscontrol-alertas] Alerta criado: ${vehicle.plate} - ${descricao || alsID}`);
       }
     }
 
-    console.log("[truckscontrol-alertas] finished", { alertasFound: alertaNodes.length, alertasCreated });
+    console.log("[truckscontrol-alertas] finished", { 
+      alertasFound: alertaNodes.length, 
+      alertasCreated,
+      vehiclesNotFound 
+    });
 
     return new Response(JSON.stringify({
       success: true,
       timestamp: new Date().toISOString(),
       alertasFound: alertaNodes.length,
       alertasCreated,
+      vehiclesNotFound,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {

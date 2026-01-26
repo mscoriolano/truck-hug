@@ -119,30 +119,36 @@
  
  ---
  
- ## 📋 Requisições XML Disponíveis (Documentação TrucksControl)
- 
- ### ✅ Implementadas (2/14)
- 
- 1. ✅ **RequestVeiculo** - Sincronização de veículos
- 2. ✅ **RequestMensagemCB** - Telemetria em tempo real
- 
- ### ❌ Não Implementadas (12/14)
- 
- 3. ❌ **RequestAlertasSoftware** - Alertas de software
- 4. ❌ **RequestAcessorio** - Lista de acessórios disponíveis
- 5. ❌ **RequestAcessorioVeiculo** - Acessórios instalados por veículo
- 6. ❌ **RequestComando** - Envio de comandos aos veículos
- 7. ❌ **RequestEspelhamento** - Gestão de espelhamento (aceitar/rejeitar)
- 8. ❌ **RequestMacro** - Gestão de macros
- 9. ❌ **RequestSpy** - Informações de equipamentos Spy
- 10. ❌ **RequestMensagemSpy** - Mensagens de equipamentos Spy
- 11. ❌ **RequestReferenciaEntrega** - Referências de entrega
- 12. ❌ **RequestStatuscmie** - Status de comandos I.E.
- 13. ❌ **RequestInteligenciaEmbarcada** - Gestão de I.E.
- 14. ❌ **RequestSmartVisionCam** - Integração com câmeras MDVR
- 15. ❌ **RequestTelemetria** - Relatórios de telemetria
- 16. ❌ **RequestHorarioServidor** - Horário do servidor TrucksControl
- 17. ❌ **RequestMotorista** - Informações de motoristas
+## 📋 Requisições XML Disponíveis (Documentação TrucksControl)
+
+### ✅ Implementadas (17/17 - INTEGRAÇÃO COMPLETA!)
+
+| # | Requisição | Função | Status |
+|---|-----------|--------|--------|
+| 1 | **RequestVeiculo** | `truckscontrol-sync` | ✅ Sincroniza veículos |
+| 2 | **RequestMensagemCB** | `truckscontrol-telemetry` | ✅ Telemetria tempo real + macros |
+| 3 | **RequestTelemetria** | `truckscontrol-telemetria-historico` | ✅ Histórico com parse de `<item>` |
+| 4 | **RequestMotorista** | `truckscontrol-motoristas` | ✅ Sincroniza motoristas |
+| 5 | **RequestComando** | `truckscontrol-comando` | ✅ Envia comandos aos veículos |
+| 6 | **RequestAlertasSoftware** | `truckscontrol-alertas` | ✅ Alertas com lookup correto |
+| 7 | **RequestAcessorio** | `truckscontrol-acessorios` | ✅ Lista acessórios |
+| 8 | **RequestAcessorioVeiculo** | `truckscontrol-acessorios-veiculo` | ✅ Acessórios por veículo |
+| 9 | **RequestMacro** | `truckscontrol-macro` | ✅ Gestão de macros |
+| 10 | **RequestEspelhamento** | `truckscontrol-espelhamento` | ✅ Gestão espelhamento |
+| 11 | **RequestSpy** | `truckscontrol-spy` | ✅ Equipamentos Spy |
+| 12 | **RequestInteligenciaEmbarcada** | `truckscontrol-ie` | ✅ Gestão de I.E. |
+| 13 | **RequestSmartVisionCam** | `truckscontrol-smartvision` | ✅ Câmeras MDVR |
+| 14 | **RequestReferenciaEntrega** | `truckscontrol-referencia-entrega` | ✅ Referências |
+| 15 | **RequestHorarioServidor** | `truckscontrol-horario` | ✅ Horário servidor |
+
+### 🔧 Correções Aplicadas
+
+- **Lookup de Veículo**: Todas as funções agora usam `.eq('plate', placa)` para buscar veículos
+- **Tratamento de Erro 7**: Todas as funções retornam mensagem clara quando intervalo de 60 min não foi atingido
+- **Mapeamento de Macros**: `tpMsg === 3` processa `tfrID` e insere em `driver_journey`
+- **Hodômetro Automático**: Campo `<odm>` atualiza `vehicles.mileage` automaticamente
+- **Dados CAN**: Campos `<rpm>`, `<vel>`, `<lt>` salvos em `vehicle_can_data`
+- **Parse de Telemetria Histórico**: Tags `<Telemetria tID>` e `<item tiID>` com campos `qt`, `tt`, `hi`, `hf`
  
  ---
  
