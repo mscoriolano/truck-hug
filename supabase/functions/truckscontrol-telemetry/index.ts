@@ -410,17 +410,32 @@ serve(async (req) => {
       let response: Response;
       try {
         // Envia como string bruta (naked XML) no corpo do POST
+        // Headers limpos conforme TI TrucksControl: sem Accept-Encoding
         response = await fetch(webserviceUrl, {
           method: "POST",
           headers: {
-            "Content-Type": "text/xml; charset=UTF-8",
-            Accept: "text/xml, application/xml, application/zip, application/gzip, */*",
-            "Accept-Encoding": "gzip, deflate",
-            "User-Agent": "FleetApp/1.0",
+            "Content-Type": "text/xml",
+            "User-Agent": "Mozilla/5.0",
           },
           body: xmlRequest, // XML bruto, sem encapsulamento JSON
           signal: controller.signal,
         });
+      } catch (fetchError: unknown) {
+        clearTimeout(timeout);
+        // Log específico para erros de conexão/TLS
+        const errMsg = String(fetchError);
+        const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+        const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+        const isAbort = /abort/i.test(errMsg);
+        
+        console.error("[truckscontrol-telemetry] NETWORK ERROR", {
+          type: isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN",
+          message: errMsg,
+          endpoint: webserviceUrl,
+          timestamp: new Date().toISOString(),
+        });
+        
+        throw fetchError;
       } finally {
         clearTimeout(timeout);
       }
