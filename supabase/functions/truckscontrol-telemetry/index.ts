@@ -489,10 +489,30 @@ serve(async (req) => {
             ? "Timeout ao conectar na TrucksControl"
             : "Erro de rede ao conectar na TrucksControl";
 
+        // Salvar IP e erro na tabela telemetry_settings para exibição no Dashboard
+        try {
+          await supabase
+            .from("telemetry_settings")
+            .update({
+              last_error_debug: {
+                publicIp,
+                error: friendly,
+                networkType: type,
+                rawError: errMsg,
+                endpoint: webserviceUrl,
+                timestamp: new Date().toISOString(),
+              },
+            })
+            .eq("id", settingsData?.id);
+        } catch (saveErr) {
+          console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
+        }
+
         return new Response(
           JSON.stringify({
             success: false,
             error: friendly,
+            publicIp,
             timestamp: new Date().toISOString(),
             endpoint: webserviceUrl,
             debug: debugEnabled

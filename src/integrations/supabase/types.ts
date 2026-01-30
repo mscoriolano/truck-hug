@@ -1334,6 +1334,7 @@ export type Database = {
           id: string
           idle_critical_minutes: number | null
           idle_warning_minutes: number | null
+          last_error_debug: Json | null
           operation_end_time: string | null
           operation_start_time: string | null
           speed_limit_highway: number | null
@@ -1349,6 +1350,7 @@ export type Database = {
           id?: string
           idle_critical_minutes?: number | null
           idle_warning_minutes?: number | null
+          last_error_debug?: Json | null
           operation_end_time?: string | null
           operation_start_time?: string | null
           speed_limit_highway?: number | null
@@ -1364,6 +1366,7 @@ export type Database = {
           id?: string
           idle_critical_minutes?: number | null
           idle_warning_minutes?: number | null
+          last_error_debug?: Json | null
           operation_end_time?: string | null
           operation_start_time?: string | null
           speed_limit_highway?: number | null
@@ -1718,6 +1721,7 @@ export type Database = {
           rpm_violation: boolean | null
           speed: number | null
           speed_violation: boolean | null
+          total_time_minutes: number | null
           vehicle_id: string
           vehicle_plate: string
         }
@@ -1740,6 +1744,7 @@ export type Database = {
           rpm_violation?: boolean | null
           speed?: number | null
           speed_violation?: boolean | null
+          total_time_minutes?: number | null
           vehicle_id: string
           vehicle_plate: string
         }
@@ -1762,6 +1767,7 @@ export type Database = {
           rpm_violation?: boolean | null
           speed?: number | null
           speed_violation?: boolean | null
+          total_time_minutes?: number | null
           vehicle_id?: string
           vehicle_plate?: string
         }
