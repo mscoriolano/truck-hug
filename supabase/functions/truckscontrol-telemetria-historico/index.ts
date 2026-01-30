@@ -98,6 +98,28 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
+    // ==========================================
+    // Diagnóstico de IP de Saída
+    // ==========================================
+    let publicIp: string | null = null;
+    try {
+      const ipController = new AbortController();
+      const ipTimeout = setTimeout(() => ipController.abort(), 4000);
+      const ipRes = await fetch("https://api.ipify.org?format=json", {
+        method: "GET",
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: ipController.signal,
+      });
+      clearTimeout(ipTimeout);
+      if (ipRes.ok) {
+        const json = (await ipRes.json()) as { ip?: string };
+        publicIp = json?.ip ?? null;
+        if (publicIp) console.log("IP de Saída:", publicIp);
+      }
+    } catch (e) {
+      console.warn("[truckscontrol-telemetria-historico] ipify failed", String(e));
+    }
+
     // Datas padrão: últimas 24 horas
     const now = new Date();
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -151,15 +173,90 @@ serve(async (req) => {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120_000); // 2 minutos para histórico
+    const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
     let response: Response;
     try {
-      response = await fetch("https://webservice.newrastreamentoonline.com.br", {
+      // Headers simplificados conforme TI TrucksControl
+      response = await fetch(webserviceUrl, {
         method: "POST",
-        headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
+        headers: { 
+          "Content-Type": "text/xml",
+          "User-Agent": "Mozilla/5.0",
+        },
         body: xmlRequest,
         signal: controller.signal,
       });
+    } catch (fetchError: unknown) {
+      clearTimeout(timeout);
+      const errMsg = String(fetchError);
+      const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
+      const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+      const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+      const isAbort = /abort/i.test(errMsg);
+      
+      const type = isFailedToFetch
+        ? "FAILED_TO_FETCH"
+        : isConnectionError
+          ? "CONNECTION_REFUSED"
+          : isTlsError
+            ? "TLS_HANDSHAKE_FAILED"
+            : isAbort
+              ? "TIMEOUT_ABORTED"
+              : "UNKNOWN";
+
+      console.error("[truckscontrol-telemetria-historico] NETWORK ERROR", {
+        type,
+        message: errMsg,
+        endpoint: webserviceUrl,
+        publicIp,
+        timestamp: new Date().toISOString(),
+      });
+
+      const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+      const friendly = isFirewallLike
+        ? "Erro de Firewall (Conexão Recusada)"
+        : isAbort
+          ? "Timeout ao conectar na TrucksControl"
+          : "Erro de rede ao conectar na TrucksControl";
+
+      // Salvar IP e erro na tabela telemetry_settings para exibição no Dashboard
+      const { data: settingsData } = await supabase
+        .from("telemetry_settings")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+
+      if (settingsData?.id) {
+        try {
+          await supabase
+            .from("telemetry_settings")
+            .update({
+              last_error_debug: {
+                publicIp,
+                error: friendly,
+                networkType: type,
+                rawError: errMsg,
+                endpoint: webserviceUrl,
+                timestamp: new Date().toISOString(),
+              },
+            })
+            .eq("id", settingsData.id);
+        } catch (saveErr) {
+          console.warn("[truckscontrol-telemetria-historico] Failed to save error debug:", String(saveErr));
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: friendly,
+          publicIp,
+          timestamp: new Date().toISOString(),
+          endpoint: webserviceUrl,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -275,8 +372,17 @@ serve(async (req) => {
         }
       }
 
-      // Armazenar dados CAN se disponíveis
-      if (rpm > 0 || lt > 0 || evt34 || evt35) {
+      // Armazenar dados CAN se disponíveis (incluindo <tt> - tempo total)
+      // Extrair <tt> dos itens de telemetria
+      let totalTimeMinutes: number | null = null;
+      for (const itemXml of itemNodes) {
+        const tt = parseInt(parseXmlValue(itemXml, "tt") || "0", 10);
+        if (tt > 0) {
+          totalTimeMinutes = (totalTimeMinutes || 0) + tt;
+        }
+      }
+
+      if (rpm > 0 || lt > 0 || evt34 || evt35 || totalTimeMinutes) {
         await supabase.from("vehicle_can_data").insert({
           vehicle_id: vehicle.id,
           vehicle_plate: placa,
@@ -287,7 +393,8 @@ serve(async (req) => {
           odometer: odm || null,
           speed_violation: evt34 === "1" || evt34 === "true",
           rpm_violation: evt35 === "1" || evt35 === "true",
-          raw_data: { evt34, evt35, rpm, lt, vel },
+          total_time_minutes: totalTimeMinutes,
+          raw_data: { evt34, evt35, rpm, lt, vel, tt: totalTimeMinutes },
         });
       }
     }
