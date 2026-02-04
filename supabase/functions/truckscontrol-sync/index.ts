@@ -366,6 +366,11 @@ serve(async (req) => {
     const onlyDebugRequests = Boolean(input.onlyDebugRequests);
     const debugRequests = input.debugRequests;
 
+    // IMPORTANT: `debug` é usado dentro de `doXmlRequest`. Ele precisa existir
+    // (fora da TDZ) antes de qualquer chamada a `doXmlRequest`, inclusive no
+    // fluxo debug-only que executa antes da construção do RequestVeiculo.
+    let debug: DebugPayload | undefined = undefined;
+
     const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
     const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -475,7 +480,7 @@ serve(async (req) => {
       input.alterados,
     );
 
-    const debug: DebugPayload | undefined = debugEnabled
+    debug = debugEnabled
       ? {
           requestXml: includeSensitive ? xmlRequest : undefined,
           requestXmlMasked: maskPasswordInXml(xmlRequest),
