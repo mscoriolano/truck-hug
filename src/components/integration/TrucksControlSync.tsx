@@ -63,6 +63,37 @@ interface TelemetryResult {
   };
 }
 
+type DebugBundleRequestName = 'veiculo' | 'motoristas' | 'acessorios' | 'mensagemcb';
+
+type DebugBundle = {
+  urlUsed: string;
+  publicIp?: string | null;
+  requests: Array<{
+    name: DebugBundleRequestName;
+    requestXml?: string;
+    requestXmlMasked: string;
+    response: {
+      url: string;
+      status: number;
+      ok: boolean;
+      contentType: string | null;
+      wasZip: boolean;
+      truncated: boolean;
+      bodyPreview: string;
+      bodyLengthBytes: number;
+    };
+    apiError?: string | null;
+  }>;
+};
+
+type DebugBundleResult = {
+  success: boolean;
+  timestamp: string;
+  message?: string;
+  error?: string;
+  debugBundle?: DebugBundle;
+};
+
 function downloadTextFile(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -79,9 +110,42 @@ export function TrucksControlSync() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
   const [lastTelemetry, setLastTelemetry] = useState<TelemetryResult | null>(null);
+  const [lastDebugBundle, setLastDebugBundle] = useState<DebugBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [debugMode, setDebugMode] = useState(false);
   const [includeSensitive, setIncludeSensitive] = useState(false);
+
+  const handleDebugComplete = async () => {
+    setIsSyncing(true);
+    setError(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke('truckscontrol-sync', {
+        body: {
+          debug: true,
+          includeSensitive,
+          debugAllRequests: true,
+          onlyDebugRequests: true,
+          debugRequests: ['veiculo', 'mensagemcb', 'motoristas', 'acessorios'],
+        },
+      });
+      if (fnError) throw fnError;
+
+      const res = data as DebugBundleResult;
+      if (!res?.success || !res?.debugBundle) {
+        throw new Error(res?.error || 'Não foi possível gerar o Debug Bundle');
+      }
+      setLastDebugBundle(res.debugBundle);
+      toast.success('Debug completo gerado', {
+        description: 'Agora o pacote inclui Veículo + Telemetria (MensagemCB) + Motoristas + Acessórios.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro desconhecido';
+      setError(message);
+      toast.error('Erro ao gerar debug completo', { description: message });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleSync = async () => {
     setIsSyncing(true);
@@ -203,10 +267,52 @@ export function TrucksControlSync() {
   };
 
   const canDownload = useMemo(() => {
+    if (lastDebugBundle?.requests?.length) return true;
     return Boolean(lastSync?.debug?.xml?.requestXmlMasked || lastSync?.debug?.xml?.responses?.length);
-  }, [lastSync]);
+  }, [lastDebugBundle, lastSync]);
 
   const buildSupportBundle = () => {
+    if (lastDebugBundle?.requests?.length) {
+      const ts = new Date().toISOString().replace(/:/g, '-');
+      const content = [
+        `# TrucksControl - Debug Bundle (Completo)`,
+        `timestamp: ${new Date().toISOString()}`,
+        `urlUsed: ${lastDebugBundle.urlUsed}`,
+        `publicIp: ${lastDebugBundle.publicIp ?? '—'}`,
+        '',
+        ...lastDebugBundle.requests.flatMap((r) => {
+          const titleMap: Record<DebugBundleRequestName, string> = {
+            veiculo: 'Veículo (RequestVeiculo)',
+            mensagemcb: 'Telemetria (RequestMensagemCB)',
+            motoristas: 'Motoristas (RequestMotorista)',
+            acessorios: 'Acessórios (RequestAcessorio)',
+          };
+          return [
+            `## ${titleMap[r.name]}`,
+            r.apiError ? `apiError: ${r.apiError}` : 'apiError: —',
+            '',
+            '### REQUEST XML',
+            includeSensitive ? (r.requestXml || r.requestXmlMasked) : r.requestXmlMasked,
+            '',
+            '### RESPONSE (preview)',
+            `url: ${r.response.url}`,
+            `status: ${r.response.status}`,
+            `ok: ${String(r.response.ok)}`,
+            `content-type: ${r.response.contentType ?? '—'}`,
+            `zip: ${String(r.response.wasZip)}`,
+            `truncated: ${String(r.response.truncated)}`,
+            `bytes: ${String(r.response.bodyLengthBytes)}`,
+            '',
+            r.response.bodyPreview,
+            '',
+          ];
+        }),
+      ].join('\n');
+
+      downloadTextFile(`truckscontrol-debug-completo-${ts}.txt`, content);
+      return;
+    }
+
     const ts = lastSync?.timestamp
       ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
       : new Date().toISOString().replace(/:/g, '-');
@@ -337,6 +443,15 @@ export function TrucksControlSync() {
 
           {debugMode && canDownload ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Button
+                variant="default"
+                onClick={handleDebugComplete}
+                className="w-full sm:w-auto"
+                disabled={isSyncing}
+              >
+                <RefreshCw className={isSyncing ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
+                Executar Debug Completo
+              </Button>
               <Button variant="secondary" onClick={buildSupportBundle} className="w-full sm:w-auto">
                 <Download className="mr-2 h-4 w-4" />
                 Baixar pacote p/ suporte

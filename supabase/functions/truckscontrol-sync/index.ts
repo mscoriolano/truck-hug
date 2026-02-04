@@ -49,6 +49,23 @@ type DebugPayload = {
   }>;
 };
 
+type DebugBundleEntry = {
+  name: "veiculo" | "motoristas" | "acessorios" | "mensagemcb";
+  requestXml?: string;
+  requestXmlMasked: string;
+  response: {
+    url: string;
+    status: number;
+    ok: boolean;
+    contentType: string | null;
+    wasZip: boolean;
+    truncated: boolean;
+    bodyPreview: string;
+    bodyLengthBytes: number;
+  };
+  apiError?: string | null;
+};
+
 type InputBody = {
   alterados?: boolean;
   debug?: boolean;
@@ -330,8 +347,6 @@ async function readBodyLimited(
 
 async function safeJson(req: Request): Promise<InputBody> {
   try {
-    const ct = req.headers.get("content-type") || "";
-    if (!ct.includes("application/json")) return {};
     return (await req.json()) as InputBody;
   } catch {
     return {};
@@ -482,21 +497,68 @@ serve(async (req) => {
     ): Promise<{
       attempt: AttemptLog;
       responseText: string;
+      responseMeta: {
+        url: string;
+        status: number;
+        ok: boolean;
+        contentType: string | null;
+        wasZip: boolean;
+        truncated: boolean;
+        bodyPreview: string;
+        bodyLengthBytes: number;
+      };
     }> {
       const timeoutMs = opts?.timeoutMs ?? 30_000; // debug não pode travar tudo
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetch(webserviceUrl, {
-          method: "POST",
-          headers: {
-            // Headers simplificados para evitar negociação de compressão/handshake
-            "Content-Type": "text/xml",
-            "User-Agent": "Mozilla/5.0",
-          },
-          body: requestXml,
-          signal: controller.signal,
-        });
+        let response: Response;
+        try {
+          response = await fetch(webserviceUrl, {
+            method: "POST",
+            headers: {
+              // Headers simplificados para evitar negociação de compressão/handshake
+              "Content-Type": "text/xml",
+              "User-Agent": "Mozilla/5.0",
+            },
+            body: requestXml,
+            signal: controller.signal,
+          });
+        } catch (e) {
+          const errMsg = String(e);
+          console.error(`[truckscontrol-sync][${label}] NETWORK ERROR:`, errMsg);
+
+          const attempt: AttemptLog = {
+            url: webserviceUrl,
+            status: 0,
+            ok: false,
+            contentType: null,
+            wasZip: false,
+            preview: errMsg,
+            error: errMsg,
+            truncated: false,
+            bodyLengthBytes: 0,
+          };
+
+          console.log(`[truckscontrol-sync][${label}] XML REQUEST:`);
+          console.log(maskCredentialsInXml(requestXml));
+          console.log(`[truckscontrol-sync][${label}] endpoint:`, webserviceUrl);
+
+          return {
+            attempt,
+            responseText: "",
+            responseMeta: {
+              url: webserviceUrl,
+              status: 0,
+              ok: false,
+              contentType: null,
+              wasZip: false,
+              truncated: false,
+              bodyPreview: errMsg,
+              bodyLengthBytes: 0,
+            },
+          };
+        }
 
         const contentType = response.headers.get("content-type");
         const limited = await readBodyLimited(response, 5_000_000);
@@ -538,7 +600,20 @@ serve(async (req) => {
           });
         }
 
-        return { attempt, responseText: decoded.text || "" };
+        return {
+          attempt,
+          responseText: decoded.text || "",
+          responseMeta: {
+            url: webserviceUrl,
+            status: response.status,
+            ok: response.ok,
+            contentType,
+            wasZip: decoded.wasZip,
+            truncated: limited.truncated,
+            bodyPreview: decoded.text ? decoded.text.slice(0, 50_000) : "<<empty body>>",
+            bodyLengthBytes: limited.bytes.length,
+          },
+        };
       } finally {
         clearTimeout(timeout);
       }
@@ -547,7 +622,7 @@ serve(async (req) => {
     // ==========================================
     // RequestVeiculo (principal) - 1 única chamada usada p/ debug + parsing
     // ==========================================
-    const { attempt, responseText } = await doXmlRequest("veiculo", xmlRequest, {
+    const { attempt, responseText, responseMeta: vehicleMeta } = await doXmlRequest("veiculo", xmlRequest, {
       timeoutMs: 60_000,
     });
 
@@ -640,6 +715,16 @@ serve(async (req) => {
         ? debugRequests
         : (["veiculo", "motoristas", "acessorios", "mensagemcb"] as const);
 
+      const bundle: DebugBundleEntry[] = [];
+      // sempre inclui o veículo já executado
+      bundle.push({
+        name: "veiculo",
+        requestXml: includeSensitive ? xmlRequest : undefined,
+        requestXmlMasked: includeSensitive ? xmlRequest : maskCredentialsInXml(xmlRequest),
+        response: vehicleMeta,
+        apiError: lastApiError,
+      });
+
       // Busca last_mld para RequestMensagemCB
       let lastMld = 1;
       try {
@@ -658,22 +743,64 @@ serve(async (req) => {
       for (const reqName of wanted) {
         if (reqName === "veiculo") continue; // já executado
         if (reqName === "motoristas") {
-          await doXmlRequest(
+          const reqXml = buildMotoristasRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD);
+          const { responseText: txt, responseMeta } = await doXmlRequest(
             "motoristas",
-            buildMotoristasRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+            reqXml,
           );
+
+          const apiError =
+            txt.includes("<erro>") || txt.includes("<ErrorRequest")
+              ? parseXmlValue(txt, "erro") || "Erro retornado pela TrucksControl"
+              : null;
+
+          bundle.push({
+            name: "motoristas",
+            requestXml: includeSensitive ? reqXml : undefined,
+            requestXmlMasked: includeSensitive ? reqXml : maskCredentialsInXml(reqXml),
+            response: responseMeta,
+            apiError,
+          });
         }
         if (reqName === "acessorios") {
-          await doXmlRequest(
+          const reqXml = buildAcessoriosRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD);
+          const { responseText: txt, responseMeta } = await doXmlRequest(
             "acessorios",
-            buildAcessoriosRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+            reqXml,
           );
+
+          const apiError =
+            txt.includes("<erro>") || txt.includes("<ErrorRequest")
+              ? parseXmlValue(txt, "erro") || "Erro retornado pela TrucksControl"
+              : null;
+
+          bundle.push({
+            name: "acessorios",
+            requestXml: includeSensitive ? reqXml : undefined,
+            requestXmlMasked: includeSensitive ? reqXml : maskCredentialsInXml(reqXml),
+            response: responseMeta,
+            apiError,
+          });
         }
         if (reqName === "mensagemcb") {
-          await doXmlRequest(
+          const reqXml = buildMensagemCbRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, lastMld);
+          const { responseText: txt, responseMeta } = await doXmlRequest(
             "mensagemcb",
-            buildMensagemCbRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, lastMld),
+            reqXml,
           );
+
+          const apiError =
+            txt.includes("<erro>") || txt.includes("<ErrorRequest")
+              ? parseXmlValue(txt, "erro") || "Erro retornado pela TrucksControl"
+              : null;
+
+          bundle.push({
+            name: "mensagemcb",
+            requestXml: includeSensitive ? reqXml : undefined,
+            requestXmlMasked: includeSensitive ? reqXml : maskCredentialsInXml(reqXml),
+            response: responseMeta,
+            apiError,
+          });
         }
       }
 
@@ -682,6 +809,23 @@ serve(async (req) => {
         executed: wanted,
         lastMld,
       });
+
+      // Se o modo for apenas diagnóstico, responde com o bundle completo e não altera dados do banco.
+      if (onlyDebugRequests) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            timestamp: new Date().toISOString(),
+            message: "Debug Bundle gerado",
+            debugBundle: {
+              urlUsed: webserviceUrl,
+              publicIp,
+              requests: bundle,
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     let vehiclesMatched = 0;
