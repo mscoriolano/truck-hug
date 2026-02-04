@@ -106,6 +106,55 @@ function downloadTextFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+function escapeXmlForCdata(value: string) {
+  // Evita quebrar CDATA com "]]>" dentro do conteúdo
+  return value.replace(/]]>/g, ']]]]><![CDATA[>');
+}
+
+function debugBundleRequestsToXml(bundle: DebugBundle, includeSensitive: boolean) {
+  const ts = new Date().toISOString();
+  const rows = bundle.requests
+    .map((r) => {
+      const xml = includeSensitive ? r.requestXml || r.requestXmlMasked : r.requestXmlMasked;
+      return [
+        `  <Request name="${r.name}">`,
+        `    <![CDATA[${escapeXmlForCdata(xml ?? '')}]]>`,
+        `  </Request>`,
+      ].join('\n');
+    })
+    .join('\n');
+
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<TrucksControlDebug type="requests" timestamp="${ts}" urlUsed="${bundle.urlUsed}">`,
+    rows,
+    `</TrucksControlDebug>`,
+    '',
+  ].join('\n');
+}
+
+function debugBundleResponsesToXml(bundle: DebugBundle) {
+  const ts = new Date().toISOString();
+  const rows = bundle.requests
+    .map((r) => {
+      const xml = r.response.bodyPreview ?? '';
+      return [
+        `  <Response name="${r.name}" status="${r.response.status}" ok="${String(r.response.ok)}">`,
+        `    <![CDATA[${escapeXmlForCdata(xml)}]]>`,
+        `  </Response>`,
+      ].join('\n');
+    })
+    .join('\n');
+
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<TrucksControlDebug type="responses" timestamp="${ts}" urlUsed="${bundle.urlUsed}">`,
+    rows,
+    `</TrucksControlDebug>`,
+    '',
+  ].join('\n');
+}
+
 export function TrucksControlSync() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
@@ -115,7 +164,7 @@ export function TrucksControlSync() {
   const [debugMode, setDebugMode] = useState(false);
   const [includeSensitive, setIncludeSensitive] = useState(false);
 
-  const handleDebugComplete = async () => {
+  const handleDebugComplete = async (): Promise<DebugBundle | null> => {
     setIsSyncing(true);
     setError(null);
     try {
@@ -138,10 +187,12 @@ export function TrucksControlSync() {
       toast.success('Debug completo gerado', {
         description: 'Agora o pacote inclui Veículo + Telemetria (MensagemCB) + Motoristas + Acessórios.',
       });
+      return res.debugBundle;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro desconhecido';
       setError(message);
       toast.error('Erro ao gerar debug completo', { description: message });
+      return null;
     } finally {
       setIsSyncing(false);
     }
@@ -367,7 +418,20 @@ export function TrucksControlSync() {
     downloadTextFile(`truckscontrol-debug-${ts}.txt`, content);
   };
 
-  const downloadRequestXml = () => {
+  const downloadRequestXml = async () => {
+    // Prioridade: Debug Bundle completo (4 blocos)
+    let bundle = lastDebugBundle;
+    if (debugMode && !bundle?.requests?.length) {
+      bundle = await handleDebugComplete();
+    }
+    if (bundle?.requests?.length) {
+      const ts = new Date().toISOString().replace(/:/g, '-');
+      const xml = debugBundleRequestsToXml(bundle, includeSensitive);
+      downloadTextFile(`truckscontrol-requests-${ts}.xml`, xml);
+      return;
+    }
+
+    // Fallback: apenas RequestVeiculo (modo antigo)
     const ts = lastSync?.timestamp
       ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
       : new Date().toISOString().replace(/:/g, '-');
@@ -378,7 +442,20 @@ export function TrucksControlSync() {
     downloadTextFile(`truckscontrol-request-${ts}.xml`, xml || '');
   };
 
-  const downloadFirstResponse = () => {
+  const downloadFirstResponse = async () => {
+    // Prioridade: Debug Bundle completo (4 blocos)
+    let bundle = lastDebugBundle;
+    if (debugMode && !bundle?.requests?.length) {
+      bundle = await handleDebugComplete();
+    }
+    if (bundle?.requests?.length) {
+      const ts = new Date().toISOString().replace(/:/g, '-');
+      const xml = debugBundleResponsesToXml(bundle);
+      downloadTextFile(`truckscontrol-responses-${ts}.xml`, xml);
+      return;
+    }
+
+    // Fallback: apenas a primeira resposta do RequestVeiculo (modo antigo)
     const ts = lastSync?.timestamp
       ? new Date(lastSync.timestamp).toISOString().replace(/:/g, '-')
       : new Date().toISOString().replace(/:/g, '-');
