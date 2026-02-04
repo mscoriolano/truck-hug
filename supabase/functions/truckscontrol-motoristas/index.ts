@@ -122,6 +122,15 @@ serve(async (req) => {
   }
 
   try {
+    let input: { debug?: boolean; includeSensitive?: boolean } = {};
+    try {
+      input = await req.json();
+    } catch {
+      // ignore
+    }
+    const debugEnabled = Boolean(input.debug);
+    const includeSensitive = Boolean(input.includeSensitive);
+
     const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
     const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -141,6 +150,12 @@ serve(async (req) => {
   <senha>${escapeXml(TRUCKSCONTROL_PASSWORD)}</senha>
 </RequestMotorista>`;
 
+    const xmlMasked = xmlRequest.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
+    if (debugEnabled) {
+      console.log("[truckscontrol-motoristas] XML REQUEST:");
+      console.log(includeSensitive ? xmlRequest : xmlMasked);
+    }
+
     console.log("[truckscontrol-motoristas] start", { ts: new Date().toISOString() });
 
     const controller = new AbortController();
@@ -151,9 +166,8 @@ serve(async (req) => {
       response = await fetch("https://webservice.newrastreamentoonline.com.br", {
         method: "POST",
         headers: {
-          "Content-Type": "text/xml; charset=UTF-8",
-          Accept: "text/xml, application/xml, application/zip, */*",
-          "User-Agent": "FleetApp/1.0",
+          "Content-Type": "text/xml",
+          "User-Agent": "Mozilla/5.0",
         },
         body: xmlRequest,
         signal: controller.signal,
@@ -164,6 +178,11 @@ serve(async (req) => {
 
     const bytes = await readBodyLimited(response);
     const responseText = decodeTrucksControlBody(bytes);
+
+    if (debugEnabled) {
+      console.log("[truckscontrol-motoristas] RESPONSE TEXT (preview):");
+      console.log((responseText || "<<empty body>>").slice(0, 50_000));
+    }
 
     if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
       const erro = parseXmlValue(responseText, "erro") || "Erro retornado pela TrucksControl";
@@ -222,6 +241,14 @@ serve(async (req) => {
       driversFound: driverNodes.length,
       driversCreated,
       driversUpdated,
+      ...(debugEnabled
+        ? {
+            debug: {
+              requestXmlMasked: xmlMasked,
+              responsePreview: (responseText || "").slice(0, 50_000),
+            },
+          }
+        : {}),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {
