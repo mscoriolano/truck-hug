@@ -53,6 +53,21 @@ type InputBody = {
   alterados?: boolean;
   debug?: boolean;
   includeSensitive?: boolean;
+  /**
+   * Quando true, executa chamadas adicionais (além de RequestVeiculo)
+   * apenas para diagnóstico: Motoristas, Acessórios e MensagemCB.
+   */
+  debugAllRequests?: boolean;
+  /**
+   * Permite escolher quais requisições executar em debugAllRequests.
+   * Defaults: ["veiculo","motoristas","acessorios","mensagemcb"].
+   */
+  debugRequests?: Array<"veiculo" | "motoristas" | "acessorios" | "mensagemcb">;
+  /**
+   * Quando true, NÃO executa o fluxo normal de veículos.
+   * Executa apenas as requisições selecionadas em debugRequests.
+   */
+  onlyDebugRequests?: boolean;
 };
 
 // ============ XML helpers ============
@@ -95,6 +110,43 @@ function buildVehicleRequestXml(
 
 function maskPasswordInXml(xml: string): string {
   return xml.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
+}
+
+function maskCredentialsInXml(xml: string): string {
+  // login não é segredo no mesmo nível, mas para debug público é melhor mascarar também
+  return maskPasswordInXml(xml).replace(/<login>[\s\S]*?<\/login>/gi, "<login>***</login>");
+}
+
+function buildMotoristasRequestXml(user: string, password: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestMotorista>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>\n</RequestMotorista>`;
+}
+
+function buildAcessoriosRequestXml(user: string, password: string): string {
+  // Observação: em outros arquivos existe RequestAcessorio; aqui seguimos o que já está no projeto
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestAcessorio>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>\n</RequestAcessorio>`;
+}
+
+function buildMensagemCbRequestXml(user: string, password: string, mldValue: number): string {
+  const safeMld = Number.isInteger(mldValue) && mldValue > 0 ? mldValue : 1;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestMensagemCB>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>\n  <mld>${safeMld}</mld>\n</RequestMensagemCB>`;
+}
+
+async function fetchOutboundIp(): Promise<string | null> {
+  try {
+    const ipController = new AbortController();
+    const ipTimeout = setTimeout(() => ipController.abort(), 4000);
+    const ipRes = await fetch("https://api.ipify.org?format=json", {
+      method: "GET",
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: ipController.signal,
+    });
+    clearTimeout(ipTimeout);
+    if (!ipRes.ok) return null;
+    const json = (await ipRes.json()) as { ip?: string };
+    return json?.ip ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function bytesPreview(bytes: Uint8Array, max = 32): string {
@@ -295,6 +347,9 @@ serve(async (req) => {
     const input = await safeJson(req);
     const includeSensitive = Boolean(input.includeSensitive);
     const debugEnabled = Boolean(input.debug);
+    const debugAllRequests = Boolean(input.debugAllRequests);
+    const onlyDebugRequests = Boolean(input.onlyDebugRequests);
+    const debugRequests = input.debugRequests;
 
     const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
     const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
@@ -328,6 +383,77 @@ serve(async (req) => {
     // Documentação: HTTP não é aceito; usar apenas HTTPS
     const webserviceUrl = "https://webservice.newrastreamentoonline.com.br";
 
+    // ==========================================
+    // Diagnóstico de IP de Saída (sempre loga no console)
+    // ==========================================
+    const publicIp = await fetchOutboundIp();
+    if (publicIp) console.log("IP de Saída:", publicIp);
+
+    // ==========================================
+    // Modo: somente debug (não altera base / não chama veículos)
+    // ==========================================
+    if (debugEnabled && debugAllRequests && onlyDebugRequests) {
+      const wanted = debugRequests?.length
+        ? debugRequests
+        : (["motoristas", "acessorios", "mensagemcb"] as const);
+
+      // Busca last_mld para RequestMensagemCB
+      let lastMld = 1;
+      try {
+        const { data: mldData } = await supabase
+          .from("vehicle_telemetry")
+          .select("last_mld")
+          .order("last_mld", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const parsed = Number(mldData?.last_mld);
+        if (Number.isInteger(parsed) && parsed > 0) lastMld = parsed;
+      } catch {
+        // ignore
+      }
+
+      for (const reqName of wanted) {
+        if (reqName === "motoristas") {
+          await doXmlRequest(
+            "motoristas",
+            buildMotoristasRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+          );
+        }
+        if (reqName === "acessorios") {
+          await doXmlRequest(
+            "acessorios",
+            buildAcessoriosRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+          );
+        }
+        if (reqName === "mensagemcb") {
+          await doXmlRequest(
+            "mensagemcb",
+            buildMensagemCbRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, lastMld),
+            { timeoutMs: 60_000 },
+          );
+        }
+        if (reqName === "veiculo") {
+          await doXmlRequest("veiculo", buildVehicleRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, input.alterados), {
+            timeoutMs: 60_000,
+          });
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          timestamp: new Date().toISOString(),
+          message: "Debug-only executado. Veja os logs da função para XML request/response.",
+          debug: {
+            urlUsed: webserviceUrl,
+            publicIp,
+            executed: wanted,
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const xmlRequest = buildVehicleRequestXml(
       TRUCKSCONTROL_USER,
       TRUCKSCONTROL_PASSWORD,
@@ -349,61 +475,86 @@ serve(async (req) => {
       url: webserviceUrl,
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000); // 60 segundos de timeout
+    async function doXmlRequest(
+      label: string,
+      requestXml: string,
+      opts?: { timeoutMs?: number },
+    ): Promise<{
+      attempt: AttemptLog;
+      responseText: string;
+    }> {
+      const timeoutMs = opts?.timeoutMs ?? 30_000; // debug não pode travar tudo
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(webserviceUrl, {
+          method: "POST",
+          headers: {
+            // Headers simplificados para evitar negociação de compressão/handshake
+            "Content-Type": "text/xml",
+            "User-Agent": "Mozilla/5.0",
+          },
+          body: requestXml,
+          signal: controller.signal,
+        });
 
-    let response: Response | null = null;
-    try {
-      response = await fetch(webserviceUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/xml; charset=UTF-8",
-          Accept: "text/xml, application/xml, application/zip, application/gzip, */*",
-          "Accept-Encoding": "gzip, deflate",
-          "User-Agent": "FleetApp/1.0",
-        },
-        body: xmlRequest,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
+        const contentType = response.headers.get("content-type");
+        const limited = await readBodyLimited(response, 5_000_000);
+        const decoded = decodeTrucksControlBody(limited.bytes);
+
+        const attempt: AttemptLog = {
+          url: webserviceUrl,
+          status: response.status,
+          ok: response.ok,
+          contentType,
+          wasZip: decoded.wasZip,
+          preview: decoded.text ? decoded.text.slice(0, 500) : "<<empty body>>",
+          truncated: limited.truncated,
+          bodyLengthBytes: limited.bytes.length,
+        };
+
+        // Console logs: request e response (masked)
+        console.log(`[truckscontrol-sync][${label}] XML REQUEST:`);
+        console.log(maskCredentialsInXml(requestXml));
+        console.log(`[truckscontrol-sync][${label}] endpoint:`, webserviceUrl);
+        console.log(`[truckscontrol-sync][${label}] HTTP ${response.status} ok=${response.ok} ct=${contentType} bytes=${limited.bytes.length} zip=${decoded.wasZip}`);
+        if (decoded.text) {
+          console.log(`[truckscontrol-sync][${label}] RESPONSE TEXT (preview):`);
+          console.log(decoded.text.slice(0, 50_000));
+        } else {
+          console.log(`[truckscontrol-sync][${label}] RESPONSE TEXT: <<empty body>>`);
+        }
+
+        if (debug?.responses) {
+          debug.responses.push({
+            url: webserviceUrl,
+            status: response.status,
+            ok: response.ok,
+            contentType,
+            wasZip: decoded.wasZip,
+            truncated: limited.truncated,
+            bodyPreview: decoded.text ? decoded.text.slice(0, 50_000) : "<<empty body>>",
+            bodyLengthBytes: limited.bytes.length,
+          });
+        }
+
+        return { attempt, responseText: decoded.text || "" };
+      } finally {
+        clearTimeout(timeout);
+      }
     }
 
-    const contentType = response.headers.get("content-type");
+    // ==========================================
+    // RequestVeiculo (principal) - 1 única chamada usada p/ debug + parsing
+    // ==========================================
+    const { attempt, responseText } = await doXmlRequest("veiculo", xmlRequest, {
+      timeoutMs: 60_000,
+    });
 
-    const limited = await readBodyLimited(response, 5_000_000);
-    console.log("[truckscontrol-sync] response bytes preview:", bytesPreview(limited.bytes));
-
-    const decoded = decodeTrucksControlBody(limited.bytes);
-
-    const attempt: AttemptLog = {
-      url: webserviceUrl,
-      status: response.status,
-      ok: response.ok,
-      contentType,
-      wasZip: decoded.wasZip,
-      preview: decoded.text ? decoded.text.slice(0, 500) : "<<empty body>>",
-      truncated: limited.truncated,
-      bodyLengthBytes: limited.bytes.length,
-    };
-
-    if (debug?.responses) {
-      debug.responses.push({
-        url: webserviceUrl,
-        status: response.status,
-        ok: response.ok,
-        contentType,
-        wasZip: decoded.wasZip,
-        truncated: limited.truncated,
-        bodyPreview: decoded.text ? decoded.text.slice(0, 50_000) : attempt.preview,
-        bodyLengthBytes: limited.bytes.length,
-      });
-    }
+    console.log("[truckscontrol-sync] response bytes preview:", "(ver acima no log do request veiculo)");
 
     let rawXml: string | null = null;
     let lastApiError: string | null = null;
-
-    const responseText = decoded.text || "";
 
     if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
       const msg =
@@ -419,10 +570,10 @@ serve(async (req) => {
     }
 
     console.log("[truckscontrol-sync] finished", {
-      status: response.status,
-      ok: response.ok,
-      bytesReceived: limited.bytes.length,
-      wasZip: decoded.wasZip,
+      status: attempt.status,
+      ok: attempt.ok,
+      bytesReceived: attempt.bodyLengthBytes ?? 0,
+      wasZip: attempt.wasZip,
       vehiclesXmlFound: Boolean(rawXml),
       error: lastApiError ?? null,
     });
@@ -479,6 +630,58 @@ serve(async (req) => {
         };
         if (vehicle.placa) vehiclesData.push(vehicle);
       }
+    }
+
+    // ==========================================
+    // Debug: executar outras requisições (sem alterar dados do banco)
+    // ==========================================
+    if (debugEnabled && debugAllRequests) {
+      const wanted = debugRequests?.length
+        ? debugRequests
+        : (["veiculo", "motoristas", "acessorios", "mensagemcb"] as const);
+
+      // Busca last_mld para RequestMensagemCB
+      let lastMld = 1;
+      try {
+        const { data: mldData } = await supabase
+          .from("vehicle_telemetry")
+          .select("last_mld")
+          .order("last_mld", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const parsed = Number(mldData?.last_mld);
+        if (Number.isInteger(parsed) && parsed > 0) lastMld = parsed;
+      } catch {
+        // ignore
+      }
+
+      for (const reqName of wanted) {
+        if (reqName === "veiculo") continue; // já executado
+        if (reqName === "motoristas") {
+          await doXmlRequest(
+            "motoristas",
+            buildMotoristasRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+          );
+        }
+        if (reqName === "acessorios") {
+          await doXmlRequest(
+            "acessorios",
+            buildAcessoriosRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
+          );
+        }
+        if (reqName === "mensagemcb") {
+          await doXmlRequest(
+            "mensagemcb",
+            buildMensagemCbRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, lastMld),
+          );
+        }
+      }
+
+      console.log("[truckscontrol-sync] debugAllRequests finished", {
+        publicIp,
+        executed: wanted,
+        lastMld,
+      });
     }
 
     let vehiclesMatched = 0;

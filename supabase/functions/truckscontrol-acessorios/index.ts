@@ -69,6 +69,15 @@ serve(async (req) => {
   }
 
   try {
+    let input: { debug?: boolean; includeSensitive?: boolean } = {};
+    try {
+      input = await req.json();
+    } catch {
+      // ignore
+    }
+    const debugEnabled = Boolean(input.debug);
+    const includeSensitive = Boolean(input.includeSensitive);
+
     const TRUCKSCONTROL_USER = Deno.env.get("TRUCKSCONTROL_USER");
     const TRUCKSCONTROL_PASSWORD = Deno.env.get("TRUCKSCONTROL_PASSWORD");
 
@@ -84,6 +93,12 @@ serve(async (req) => {
   <senha>${escapeXml(TRUCKSCONTROL_PASSWORD)}</senha>
 </RequestAcessorio>`;
 
+    const xmlMasked = xmlRequest.replace(/<senha>[\s\S]*?<\/senha>/gi, "<senha>***</senha>");
+    if (debugEnabled) {
+      console.log("[truckscontrol-acessorios] XML REQUEST:");
+      console.log(includeSensitive ? xmlRequest : xmlMasked);
+    }
+
     console.log("[truckscontrol-acessorios] start", { ts: new Date().toISOString() });
 
     const controller = new AbortController();
@@ -93,7 +108,7 @@ serve(async (req) => {
     try {
       response = await fetch("https://webservice.newrastreamentoonline.com.br", {
         method: "POST",
-        headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
+        headers: { "Content-Type": "text/xml", "User-Agent": "Mozilla/5.0" },
         body: xmlRequest,
         signal: controller.signal,
       });
@@ -103,6 +118,11 @@ serve(async (req) => {
 
     const bytes = await response.arrayBuffer();
     const responseText = decodeTrucksControlBody(new Uint8Array(bytes));
+
+    if (debugEnabled) {
+      console.log("[truckscontrol-acessorios] RESPONSE TEXT (preview):");
+      console.log((responseText || "<<empty body>>").slice(0, 50_000));
+    }
 
     if (responseText.includes("<erro>")) {
       const erro = parseXmlValue(responseText, "erro") || "Erro desconhecido";
@@ -122,6 +142,14 @@ serve(async (req) => {
       success: true,
       timestamp: new Date().toISOString(),
       acessorios,
+      ...(debugEnabled
+        ? {
+            debug: {
+              requestXmlMasked: xmlMasked,
+              responsePreview: (responseText || "").slice(0, 50_000),
+            },
+          }
+        : {}),
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {

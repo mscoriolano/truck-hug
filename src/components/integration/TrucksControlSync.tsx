@@ -88,7 +88,7 @@ export function TrucksControlSync() {
     setError(null);
 
     try {
-      const [syncRes, telemetryRes] = await Promise.all([
+      const calls = [
         supabase.functions.invoke('truckscontrol-sync', {
           body: {
             debug: debugMode,
@@ -100,7 +100,24 @@ export function TrucksControlSync() {
             debug: debugMode,
           },
         }),
-      ]);
+      ] as const;
+
+      // Em modo debug, dispara também as demais requisições para você ver request/response em logs
+      const extraDebugCalls = debugMode
+        ? [
+            supabase.functions.invoke('truckscontrol-motoristas', {
+              body: { debug: true, includeSensitive },
+            }),
+            supabase.functions.invoke('truckscontrol-acessorios', {
+              body: { debug: true, includeSensitive },
+            }),
+          ]
+        : [];
+
+      const results = await Promise.all([...calls, ...extraDebugCalls]);
+
+      const syncRes = results[0];
+      const telemetryRes = results[1];
 
       if (syncRes.error) {
         throw syncRes.error;
