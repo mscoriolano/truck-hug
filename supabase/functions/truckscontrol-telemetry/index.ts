@@ -92,24 +92,29 @@ function buildTelemetryRequestXml(
   password: string,
   opts?: { veiID?: string; atributos?: string; mld?: number },
 ): string {
-  // mld default é 1 para primeira execução
-  const mldValue = opts?.mld ?? 1;
+  // VALIDAÇÃO CRÍTICA: mld NUNCA pode ser null/undefined/NaN/0
+  // Default obrigatório: 1 (inteiro)
+  let mldValue: number = 1;
   
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+  if (opts?.mld !== null && opts?.mld !== undefined) {
+    const parsed = Number(opts.mld);
+    if (!isNaN(parsed) && parsed > 0 && Number.isInteger(parsed)) {
+      mldValue = parsed;
+    }
+  }
+  
+  // Garantia final
+  if (!mldValue || isNaN(mldValue) || mldValue <= 0) {
+    mldValue = 1;
+  }
+  
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
   <senha>${escapeXml(password)}</senha>
-  <mld>${mldValue}</mld>`;
+  <mld>${mldValue}</mld>${opts?.veiID ? `\n  <veiID>${escapeXml(opts.veiID)}</veiID>` : ""}${opts?.atributos ? `\n  <atributos>${escapeXml(opts.atributos)}</atributos>` : ""}
+</RequestMensagemCB>`;
 
-  if (opts?.veiID) {
-    xml += `\n  <veiID>${escapeXml(opts.veiID)}</veiID>`;
-  }
-
-  if (opts?.atributos) {
-    xml += `\n  <atributos>${escapeXml(opts.atributos)}</atributos>`;
-  }
-
-  xml += `\n</RequestMensagemCB>`;
   return xml;
 }
 
@@ -339,8 +344,10 @@ serve(async (req) => {
 
     // ==========================================
     // PASSO 1: Buscar o maior mld já processado
+    // IMPORTANTE: mld NUNCA pode ser null/undefined/NaN
+    // Default obrigatório: 1 (inteiro)
     // ==========================================
-    let lastMld = 1; // Default para primeira execução
+    let lastMld: number = 1; // Default OBRIGATÓRIO para primeira execução
     
     const { data: mldData, error: mldError } = await supabase
       .from("vehicle_telemetry")
@@ -349,8 +356,18 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
     
-    if (!mldError && mldData?.last_mld && mldData.last_mld > 0) {
-      lastMld = mldData.last_mld;
+    // Validação robusta: só usa o valor do banco se for um número válido > 0
+    if (!mldError && mldData?.last_mld !== null && mldData?.last_mld !== undefined) {
+      const parsedMld = Number(mldData.last_mld);
+      if (!isNaN(parsedMld) && parsedMld > 0 && Number.isInteger(parsedMld)) {
+        lastMld = parsedMld;
+      }
+    }
+    
+    // GARANTIA FINAL: se por qualquer motivo lastMld não for válido, força 1
+    if (!lastMld || isNaN(lastMld) || lastMld <= 0 || !Number.isInteger(lastMld)) {
+      console.warn("[truckscontrol-telemetry] mld inválido detectado, forçando para 1");
+      lastMld = 1;
     }
     
     console.log("[truckscontrol-telemetry] start", {
@@ -358,6 +375,7 @@ serve(async (req) => {
       debugEnabled,
       veiID: input.veiID || "all",
       lastMld,
+      mldSource: mldData?.last_mld ? "database" : "default",
     });
 
     // Buscar configurações de telemetria
