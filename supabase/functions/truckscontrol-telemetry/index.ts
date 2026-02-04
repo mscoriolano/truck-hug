@@ -83,15 +83,17 @@ function escapeXml(value: string): string {
 
 /**
  * Constrói o XML da requisição RequestMensagemCB
- * IMPORTANTE: Inclui obrigatoriamente a tag <mId> conforme documentação TrucksControl
- * - Na primeira execução: mId = 1
- * - Nas execuções seguintes: mId = maior ID já processado
- * NOTA: A tag correta é <mId> (I maiúsculo), NÃO <mld>
+ * IMPORTANTE: Inclui APENAS as tags obrigatórias:
+ * - <login> e <senha> para autenticação
+ * - <mId> (I maiúsculo) para sequenciamento de mensagens
+ * 
+ * NÃO inclui <atributos> pois causa erro "Atributos inválidos"
+ * O servidor retorna o pacote completo de dados automaticamente
  */
 function buildTelemetryRequestXml(
   user: string,
   password: string,
-  opts?: { veiID?: string; atributos?: string; mId?: number },
+  opts?: { veiID?: string; mId?: number },
 ): string {
   // VALIDAÇÃO CRÍTICA: mId NUNCA pode ser null/undefined/NaN/0
   // Default obrigatório: 1 (inteiro)
@@ -109,11 +111,12 @@ function buildTelemetryRequestXml(
     mIdValue = 1;
   }
   
+  // XML SIMPLES: login + senha + mId (sem atributos para evitar erro de validação)
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
   <senha>${escapeXml(password)}</senha>
-  <mId>${mIdValue}</mId>${opts?.veiID ? `\n  <veiID>${escapeXml(opts.veiID)}</veiID>` : ""}${opts?.atributos ? `\n  <atributos>${escapeXml(opts.atributos)}</atributos>` : ""}
+  <mId>${mIdValue}</mId>${opts?.veiID ? `\n  <veiID>${escapeXml(opts.veiID)}</veiID>` : ""}
 </RequestMensagemCB>`;
 
   return xml;
@@ -430,191 +433,145 @@ serve(async (req) => {
     // ==========================================
     // PASSO 2: Construir XML com a tag <mld>
     // ==========================================
-    const requestVariants: Array<{ label: string; atributos?: string }> = [
-      { label: "no_atributos" },
-      { label: "atributos_all", atributos: "all" },
-      { label: "atributos_common", atributos: "veiID,placa,latitude,longitude,velocidade,ignicao,odometro,dataHora" },
-    ];
+    // XML SIMPLES: SEM tag <atributos> para evitar erro "Atributos inválidos"
+    // O servidor TrucksControl retorna o pacote completo automaticamente
+    const xmlRequest = buildTelemetryRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, {
+      veiID: input.veiID,
+      mId: lastMld,
+    });
+    const xmlRequestMasked = maskPasswordInXml(xmlRequest);
 
     let responseText = "";
     let responseStatus = 0;
     let responseContentType: string | null = null;
-    let lastXmlRequestMasked = "";
 
-    for (const variant of requestVariants) {
-      // Inclui a tag <mId> obrigatoriamente (I maiúsculo, não L minúsculo)
-      const xmlRequest = buildTelemetryRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, {
-        veiID: input.veiID,
-        atributos: variant.atributos,
-        mId: lastMld,
+    // Log completo do XML (senha mascarada)
+    console.log("[truckscontrol-telemetry] XML REQUEST:");
+    console.log(xmlRequestMasked);
+    console.log("[truckscontrol-telemetry] endpoint:", webserviceUrl);
+
+    const controller = new AbortController();
+    const timeoutMs = 60_000; // 60 segundos
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      // Envia como string bruta (naked XML) no corpo do POST
+      response = await fetch(webserviceUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml",
+          "User-Agent": "Mozilla/5.0",
+        },
+        body: xmlRequest,
+        signal: controller.signal,
       });
-      lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
+    } catch (fetchError: unknown) {
+      clearTimeout(timeout);
+      const errMsg = String(fetchError);
+      const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
+      const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+      const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+      const isAbort = /abort/i.test(errMsg);
+      
+      const type = isFailedToFetch
+        ? "FAILED_TO_FETCH"
+        : isConnectionError
+          ? "CONNECTION_REFUSED"
+          : isTlsError
+            ? "TLS_HANDSHAKE_FAILED"
+            : isAbort
+              ? "TIMEOUT_ABORTED"
+              : "UNKNOWN";
 
-      // Log completo do XML (senha mascarada) - sempre logado para debug
-      console.log("[truckscontrol-telemetry] XML REQUEST:");
-      console.log(lastXmlRequestMasked);
-      console.log("[truckscontrol-telemetry] endpoint:", webserviceUrl);
+      console.error("[truckscontrol-telemetry] NETWORK ERROR", {
+        type,
+        message: errMsg,
+        endpoint: webserviceUrl,
+        publicIp,
+        timestamp: new Date().toISOString(),
+      });
 
-      const controller = new AbortController();
-      const timeoutMs = 60_000; // 60 segundos conforme solicitado
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+      const friendly = isFirewallLike
+        ? "Erro de Firewall (Conexão Recusada)"
+        : isAbort
+          ? "Timeout ao conectar na TrucksControl"
+          : "Erro de rede ao conectar na TrucksControl";
 
-      let response: Response;
       try {
-        // Envia como string bruta (naked XML) no corpo do POST
-        // Headers limpos conforme TI TrucksControl: sem Accept-Encoding
-        response = await fetch(webserviceUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "text/xml",
-            "User-Agent": "Mozilla/5.0",
-          },
-          body: xmlRequest, // XML bruto, sem encapsulamento JSON
-          signal: controller.signal,
-        });
-      } catch (fetchError: unknown) {
-        clearTimeout(timeout);
-        // Log específico para erros de conexão/TLS
-        const errMsg = String(fetchError);
-        const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
-        const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
-        const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
-        const isAbort = /abort/i.test(errMsg);
-        
-        const type = isFailedToFetch
-          ? "FAILED_TO_FETCH"
-          : isConnectionError
-            ? "CONNECTION_REFUSED"
-            : isTlsError
-              ? "TLS_HANDSHAKE_FAILED"
-              : isAbort
-                ? "TIMEOUT_ABORTED"
-                : "UNKNOWN";
-
-        console.error("[truckscontrol-telemetry] NETWORK ERROR", {
-          type,
-          message: errMsg,
-          endpoint: webserviceUrl,
-          publicIp,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Se o fetch falhar com "Failed to fetch" (bloqueio/erro de rede), retornamos uma resposta
-        // tratável pelo Dashboard, em vez de 500 genérico.
-        const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
-        const friendly = isFirewallLike
-          ? "Erro de Firewall (Conexão Recusada)"
-          : isAbort
-            ? "Timeout ao conectar na TrucksControl"
-            : "Erro de rede ao conectar na TrucksControl";
-
-        // Salvar IP e erro na tabela telemetry_settings para exibição no Dashboard
-        try {
-          await supabase
-            .from("telemetry_settings")
-            .update({
-              last_error_debug: {
-                publicIp,
-                error: friendly,
-                networkType: type,
-                rawError: errMsg,
-                endpoint: webserviceUrl,
-                timestamp: new Date().toISOString(),
-              },
-            })
-            .eq("id", settingsData?.id);
-        } catch (saveErr) {
-          console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
-        }
-
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: friendly,
-            publicIp,
-            timestamp: new Date().toISOString(),
-            endpoint: webserviceUrl,
-            debug: debugEnabled
-              ? {
-                  publicIp,
-                  variant: variant.label,
-                  requestXmlMasked: lastXmlRequestMasked,
-                  rawError: errMsg,
-                  networkType: type,
-                }
-              : undefined,
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      responseStatus = response.status;
-      responseContentType = response.headers.get("content-type");
-
-      const limited = await readBodyLimited(response, 5_000_000);
-      const decoded = decodeTrucksControlBody(limited.bytes);
-      responseText = decoded.text || "";
-
-      const apiErr =
-        (responseText.includes("<erro>") || responseText.includes("<ErrorRequest"))
-          ? (parseXmlValue(responseText, "erro") ||
-              parseXmlValue(responseText, "Erro") ||
-              "Erro retornado pela TrucksControl")
-          : null;
-
-      console.log("[truckscontrol-telemetry] attempt", {
-        label: variant.label,
-        status: responseStatus,
-        contentType: responseContentType,
-        bytes: limited.bytes.length,
-        hasError: Boolean(apiErr),
-        mldUsed: lastMld,
-      });
-
-      if (!apiErr) break;
-
-      if (/atribut/i.test(apiErr)) {
-        continue;
+        await supabase
+          .from("telemetry_settings")
+          .update({
+            last_error_debug: {
+              publicIp,
+              error: friendly,
+              networkType: type,
+              rawError: errMsg,
+              endpoint: webserviceUrl,
+              timestamp: new Date().toISOString(),
+            },
+          })
+          .eq("id", settingsData?.id);
+      } catch (saveErr) {
+        console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
       }
 
       return new Response(
         JSON.stringify({
           success: false,
-          error: apiErr,
+          error: friendly,
+          publicIp,
           timestamp: new Date().toISOString(),
+          endpoint: webserviceUrl,
           debug: debugEnabled
             ? {
-                requestXmlMasked: maskPasswordInXml(xmlRequest),
-                status: responseStatus,
-                contentType: responseContentType,
-                xmlResponse: responseText.slice(0, 5000),
-                mldUsed: lastMld,
+                publicIp,
+                requestXmlMasked: xmlRequestMasked,
+                rawError: errMsg,
+                networkType: type,
               }
             : undefined,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+    clearTimeout(timeout);
 
-    // Verificar erro após as tentativas
-    if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
-      const msg =
-        parseXmlValue(responseText, "erro") ||
-        parseXmlValue(responseText, "Erro") ||
-        "Erro retornado pela TrucksControl";
+    responseStatus = response.status;
+    responseContentType = response.headers.get("content-type");
+
+    const limited = await readBodyLimited(response, 5_000_000);
+    const decoded = decodeTrucksControlBody(limited.bytes);
+    responseText = decoded.text || "";
+
+    console.log("[truckscontrol-telemetry] response", {
+      status: responseStatus,
+      contentType: responseContentType,
+      bytes: limited.bytes.length,
+      mIdUsed: lastMld,
+    });
+
+    const apiErr =
+      (responseText.includes("<erro>") || responseText.includes("<ErrorRequest"))
+        ? (parseXmlValue(responseText, "erro") ||
+            parseXmlValue(responseText, "Erro") ||
+            "Erro retornado pela TrucksControl")
+        : null;
+
+    if (apiErr) {
       const codigo = parseXmlValue(responseText, "codigo");
-      const lastApiError = codigo ? `${msg} (código ${codigo})` : msg;
+      const lastApiError = codigo ? `${apiErr} (código ${codigo})` : apiErr;
 
       return new Response(
         JSON.stringify({
           success: false,
           error: lastApiError,
           timestamp: new Date().toISOString(),
-          mldUsed: lastMld,
+          mIdUsed: lastMld,
           debug: debugEnabled
             ? {
+                requestXmlMasked: xmlRequestMasked,
                 status: responseStatus,
                 contentType: responseContentType,
                 xmlResponse: responseText.slice(0, 5000),
@@ -1000,7 +957,7 @@ serve(async (req) => {
           info: "O próximo request usará mld=" + maxMldReceived,
         },
         debug: debugEnabled ? {
-          xmlRequest: lastXmlRequestMasked,
+          xmlRequest: xmlRequestMasked,
           xmlResponsePreview: responseText.slice(0, 5000),
           messages: telemetryMessages.slice(0, 10),
           journeySettings,
