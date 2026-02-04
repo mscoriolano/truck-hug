@@ -83,36 +83,37 @@ function escapeXml(value: string): string {
 
 /**
  * Constrói o XML da requisição RequestMensagemCB
- * IMPORTANTE: Inclui obrigatoriamente a tag <mld> conforme documentação TrucksControl
- * - Na primeira execução: mld = 1
- * - Nas execuções seguintes: mld = maior ID já processado
+ * IMPORTANTE: Inclui obrigatoriamente a tag <mId> conforme documentação TrucksControl
+ * - Na primeira execução: mId = 1
+ * - Nas execuções seguintes: mId = maior ID já processado
+ * NOTA: A tag correta é <mId> (I maiúsculo), NÃO <mld>
  */
 function buildTelemetryRequestXml(
   user: string,
   password: string,
-  opts?: { veiID?: string; atributos?: string; mld?: number },
+  opts?: { veiID?: string; atributos?: string; mId?: number },
 ): string {
-  // VALIDAÇÃO CRÍTICA: mld NUNCA pode ser null/undefined/NaN/0
+  // VALIDAÇÃO CRÍTICA: mId NUNCA pode ser null/undefined/NaN/0
   // Default obrigatório: 1 (inteiro)
-  let mldValue: number = 1;
+  let mIdValue: number = 1;
   
-  if (opts?.mld !== null && opts?.mld !== undefined) {
-    const parsed = Number(opts.mld);
+  if (opts?.mId !== null && opts?.mId !== undefined) {
+    const parsed = Number(opts.mId);
     if (!isNaN(parsed) && parsed > 0 && Number.isInteger(parsed)) {
-      mldValue = parsed;
+      mIdValue = parsed;
     }
   }
   
   // Garantia final
-  if (!mldValue || isNaN(mldValue) || mldValue <= 0) {
-    mldValue = 1;
+  if (!mIdValue || isNaN(mIdValue) || mIdValue <= 0) {
+    mIdValue = 1;
   }
   
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestMensagemCB>
   <login>${escapeXml(user)}</login>
   <senha>${escapeXml(password)}</senha>
-  <mld>${mldValue}</mld>${opts?.veiID ? `\n  <veiID>${escapeXml(opts.veiID)}</veiID>` : ""}${opts?.atributos ? `\n  <atributos>${escapeXml(opts.atributos)}</atributos>` : ""}
+  <mId>${mIdValue}</mId>${opts?.veiID ? `\n  <veiID>${escapeXml(opts.veiID)}</veiID>` : ""}${opts?.atributos ? `\n  <atributos>${escapeXml(opts.atributos)}</atributos>` : ""}
 </RequestMensagemCB>`;
 
   return xml;
@@ -441,11 +442,11 @@ serve(async (req) => {
     let lastXmlRequestMasked = "";
 
     for (const variant of requestVariants) {
-      // Inclui a tag <mld> obrigatoriamente
+      // Inclui a tag <mId> obrigatoriamente (I maiúsculo, não L minúsculo)
       const xmlRequest = buildTelemetryRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, {
         veiID: input.veiID,
         atributos: variant.atributos,
-        mld: lastMld,
+        mId: lastMld,
       });
       lastXmlRequestMasked = maskPasswordInXml(xmlRequest);
 
@@ -643,13 +644,13 @@ serve(async (req) => {
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
       const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odm") || parseXmlValue(msgXml, "odo") || "0", 10);
       
-      // Extrair mld da mensagem para persistência
-      const mldStr = parseXmlValue(msgXml, "mld") || parseXmlValue(msgXml, "MLD") || "0";
-      const mld = parseInt(mldStr, 10);
+      // Extrair mId da mensagem para persistência (tag correta: mId ou mID)
+      const mIdStr = parseXmlValue(msgXml, "mId") || parseXmlValue(msgXml, "mID") || parseXmlValue(msgXml, "mid") || "0";
+      const mId = parseInt(mIdStr, 10);
       
-      // Atualizar o maior mld recebido
-      if (mld > maxMldReceived) {
-        maxMldReceived = mld;
+      // Atualizar o maior mId recebido
+      if (mId > maxMldReceived) {
+        maxMldReceived = mId;
       }
       
       const tpMsg = parseInt(parseXmlValue(msgXml, "tpMsg") || "0", 10);
@@ -689,7 +690,7 @@ serve(async (req) => {
         lt: lt || undefined,
         evt34: evt34Raw === "1" || evt34Raw === "true",
         evt35: evt35Raw === "1" || evt35Raw === "true",
-        mld: mld || undefined,
+        mld: mId || undefined, // mId extraído da resposta, salvo no campo mld do objeto
       };
 
       if (msg.placa || msg.veiID) {
