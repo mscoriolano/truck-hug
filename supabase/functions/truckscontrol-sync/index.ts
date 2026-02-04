@@ -409,70 +409,11 @@ serve(async (req) => {
     const publicIp = await fetchOutboundIp();
     if (publicIp) console.log("IP de Saída:", publicIp);
 
-    // ==========================================
-    // Modo: somente debug (não altera base / não chama veículos)
-    // ==========================================
-    if (debugEnabled && debugAllRequests && onlyDebugRequests) {
-      const wanted = debugRequests?.length
-        ? debugRequests
-        : (["motoristas", "acessorios", "mensagemcb"] as const);
-
-      // Busca last_mld para RequestMensagemCB
-      let lastMld = 1;
-      try {
-        const { data: mldData } = await supabase
-          .from("vehicle_telemetry")
-          .select("last_mld")
-          .order("last_mld", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const parsed = Number(mldData?.last_mld);
-        if (Number.isInteger(parsed) && parsed > 0) lastMld = parsed;
-      } catch {
-        // ignore
-      }
-
-      for (const reqName of wanted) {
-        if (reqName === "motoristas") {
-          await doXmlRequest(
-            "motoristas",
-            buildMotoristasRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
-          );
-        }
-        if (reqName === "acessorios") {
-          await doXmlRequest(
-            "acessorios",
-            buildAcessoriosRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD),
-          );
-        }
-        if (reqName === "mensagemcb") {
-          await doXmlRequest(
-            "mensagemcb",
-            buildMensagemCbRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, lastMld),
-            { timeoutMs: 60_000 },
-          );
-        }
-        if (reqName === "veiculo") {
-          await doXmlRequest("veiculo", buildVehicleRequestXml(TRUCKSCONTROL_USER, TRUCKSCONTROL_PASSWORD, input.alterados), {
-            timeoutMs: 60_000,
-          });
-        }
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          timestamp: new Date().toISOString(),
-          message: "Debug-only executado. Veja os logs da função para XML request/response.",
-          debug: {
-            urlUsed: webserviceUrl,
-            publicIp,
-            executed: wanted,
-          },
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
+    // Observação importante:
+    // O modo `onlyDebugRequests` deve retornar um `debugBundle` completo.
+    // Portanto, NÃO fazemos early-return aqui; seguimos o fluxo normal,
+    // executamos RequestVeiculo e, ao final, montamos e retornamos o bundle
+    // no bloco `if (debugEnabled && debugAllRequests && onlyDebugRequests)`.
 
     const xmlRequest = buildVehicleRequestXml(
       TRUCKSCONTROL_USER,
