@@ -707,16 +707,47 @@ Deno.serve(async (req) => {
     let canDataInserted = 0;
 
     for (const msg of telemetryMessages) {
-      if (!msg.placa) continue;
+      // IMPORTANTE: O XML da TrucksControl retorna veiID (ID interno), não a placa
+      // Precisamos buscar o veículo pelo truckscontrol_id OU pela placa
+      if (!msg.placa && !msg.veiID) continue;
 
-      // Buscar veículo
-      const { data: vehicle } = await supabase
-        .from("vehicles")
-        .select("id, plate, mileage")
-        .eq("plate", msg.placa)
-        .maybeSingle();
-
-      if (!vehicle) continue;
+      // Buscar veículo - prioriza busca por truckscontrol_id, depois por placa
+      let vehicle: { id: string; plate: string; mileage: number | null } | null = null;
+      
+      // Primeira tentativa: buscar pelo truckscontrol_id (veiID)
+      if (msg.veiID) {
+        const { data: vehicleByTcId } = await supabase
+          .from("vehicles")
+          .select("id, plate, mileage")
+          .eq("truckscontrol_id", msg.veiID)
+          .maybeSingle();
+        
+        if (vehicleByTcId) {
+          vehicle = vehicleByTcId;
+        }
+      }
+      
+      // Segunda tentativa: buscar pela placa (se ainda não encontrou)
+      if (!vehicle && msg.placa) {
+        const { data: vehicleByPlate } = await supabase
+          .from("vehicles")
+          .select("id, plate, mileage")
+          .eq("plate", msg.placa)
+          .maybeSingle();
+        
+        if (vehicleByPlate) {
+          vehicle = vehicleByPlate;
+        }
+      }
+      
+      // Se não encontrou o veículo, log e pula
+      if (!vehicle) {
+        console.log(`[truckscontrol-telemetry] Veículo não encontrado: veiID=${msg.veiID}, placa=${msg.placa}`);
+        continue;
+      }
+      
+      // Usa a placa do veículo encontrado no banco (mais confiável)
+      const vehiclePlate = vehicle.plate;
 
       // Buscar vinculação ativa de motorista
       const { data: assignment } = await supabase
@@ -733,7 +764,7 @@ Deno.serve(async (req) => {
         .from("vehicle_telemetry")
         .upsert({
           vehicle_id: vehicle.id,
-          vehicle_plate: msg.placa,
+          vehicle_plate: vehiclePlate,
           truckscontrol_id: msg.veiID,
           latitude: msg.latitude,
           longitude: msg.longitude,
@@ -760,14 +791,14 @@ Deno.serve(async (req) => {
           
           if (!updateMileageError) {
             vehicleMileageUpdated++;
-            console.log(`[truckscontrol-telemetry] Hodômetro atualizado: ${msg.placa} = ${msg.odometro} km`);
+            console.log(`[truckscontrol-telemetry] Hodômetro atualizado: ${vehiclePlate} = ${msg.odometro} km`);
           }
         }
 
         // Inserir no histórico
         await supabase.from("telemetry_history").insert({
           vehicle_id: vehicle.id,
-          vehicle_plate: msg.placa,
+          vehicle_plate: vehiclePlate,
           driver_id: assignment?.driver_id,
           driver_name: assignment?.driver_name || msg.motorista,
           latitude: msg.latitude,
@@ -782,7 +813,7 @@ Deno.serve(async (req) => {
         if (msg.rpm || msg.lt || msg.evt34 || msg.evt35) {
           const { error: canError } = await supabase.from("vehicle_can_data").insert({
             vehicle_id: vehicle.id,
-            vehicle_plate: msg.placa,
+            vehicle_plate: vehiclePlate,
             driver_id: assignment?.driver_id,
             driver_name: assignment?.driver_name || msg.motorista,
             data_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
@@ -802,13 +833,13 @@ Deno.serve(async (req) => {
         if (msg.velocidade && msg.velocidade > settings.speed_limit_highway) {
           const { error: alertError } = await supabase.from("telemetry_alerts").insert({
             vehicle_id: vehicle.id,
-            vehicle_plate: msg.placa,
+            vehicle_plate: vehiclePlate,
             driver_id: assignment?.driver_id,
             driver_name: assignment?.driver_name || msg.motorista,
             alert_type: "speeding",
             severity: msg.velocidade > settings.speed_limit_highway + 20 ? "critical" : "warning",
             title: "Velocidade excessiva",
-            message: `Veículo ${msg.placa} a ${msg.velocidade} km/h (limite: ${settings.speed_limit_highway} km/h)`,
+            message: `Veículo ${vehiclePlate} a ${msg.velocidade} km/h (limite: ${settings.speed_limit_highway} km/h)`,
             latitude: msg.latitude,
             longitude: msg.longitude,
             speed: msg.velocidade,
@@ -831,7 +862,7 @@ Deno.serve(async (req) => {
               driver_id: assignment.driver_id,
               driver_name: assignment.driver_name,
               vehicle_id: vehicle.id,
-              vehicle_plate: msg.placa,
+              vehicle_plate: vehiclePlate,
               event_type: eventType,
               tfr_id: msg.tfrID,
               event_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
@@ -873,7 +904,7 @@ Deno.serve(async (req) => {
               driver_id: assignment.driver_id,
               driver_name: assignment.driver_name,
               vehicle_id: vehicle.id,
-              vehicle_plate: msg.placa,
+              vehicle_plate: vehiclePlate,
               event_type: journeyEventType,
               event_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
               macro_code: msg.macro,
