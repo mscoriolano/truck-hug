@@ -144,8 +144,10 @@ function buildAcessoriosRequestXml(user: string, password: string): string {
 }
 
 function buildMensagemCbRequestXml(user: string, password: string, mldValue: number): string {
-  const safeMld = Number.isInteger(mldValue) && mldValue > 0 ? mldValue : 1;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestMensagemCB>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>\n  <mld>${safeMld}</mld>\n</RequestMensagemCB>`;
+  // IMPORTANTE: A tag correta é <mId> (I maiúsculo), NÃO <mld>
+  // Mantemos o nome do parâmetro por compatibilidade interna.
+  const safeMId = Number.isInteger(mldValue) && mldValue > 0 ? mldValue : 1;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<RequestMensagemCB>\n  <login>${escapeXml(user)}</login>\n  <senha>${escapeXml(password)}</senha>\n  <mId>${safeMId}</mId>\n</RequestMensagemCB>`;
 }
 
 async function fetchOutboundIp(): Promise<string | null> {
