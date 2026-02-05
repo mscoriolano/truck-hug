@@ -1,7 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { gunzipSync, strFromU8 } from "https://esm.sh/fflate@0.8.2";
-import pako from "https://esm.sh/pako@2.1.0";
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { gunzipSync, strFromU8 } from "npm:fflate@0.8.2";
+import pako from "npm:pako@2.1.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -355,7 +354,7 @@ async function safeJson(req: Request): Promise<InputBody> {
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
