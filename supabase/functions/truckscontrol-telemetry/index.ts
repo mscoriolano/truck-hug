@@ -582,11 +582,33 @@ serve(async (req) => {
       );
     }
 
+    // ==========================================
+    // HELPER: Converter string numérica com vírgula para float
+    // ==========================================
+    function parseCoordinate(value: string | null): number {
+      if (!value) return 0;
+      // Substitui vírgula por ponto para garantir parse correto
+      const normalized = value.replace(',', '.');
+      const parsed = parseFloat(normalized);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+
     // Parsear mensagens de telemetria
+    // IMPORTANTE: Priorizar <MensagemCB> que é a tag correta do retorno
     const telemetryMessages: TelemetryMessage[] = [];
-    const messageNodes = parseXmlArray(responseText, "Mensagem") || 
-                         parseXmlArray(responseText, "MensagemCB") ||
-                         parseXmlArray(responseText, "Veiculo");
+    let messageNodes = parseXmlArray(responseText, "MensagemCB");
+    
+    // Fallback para outras tags caso MensagemCB não exista
+    if (!messageNodes.length) {
+      messageNodes = parseXmlArray(responseText, "Mensagem");
+    }
+    if (!messageNodes.length) {
+      messageNodes = parseXmlArray(responseText, "Veiculo");
+    }
+    
+    console.log("[truckscontrol-telemetry] tag utilizada:", 
+      messageNodes.length ? "MensagemCB/Mensagem/Veiculo" : "nenhuma encontrada",
+      "total nodes:", messageNodes.length);
 
     // ==========================================
     // PASSO 3: Processar mensagens e extrair mld
@@ -594,12 +616,26 @@ serve(async (req) => {
     let maxMldReceived = lastMld;
 
     for (const msgXml of messageNodes) {
-      const lat = parseFloat(parseXmlValue(msgXml, "latitude") || parseXmlValue(msgXml, "lat") || "0");
-      const lng = parseFloat(parseXmlValue(msgXml, "longitude") || parseXmlValue(msgXml, "lng") || parseXmlValue(msgXml, "lon") || "0");
+      // MAPEAMENTO CORRETO DAS TAGS:
+      // <lat> = latitude (com tratamento de vírgula)
+      // <lon> = longitude (com tratamento de vírgula)  
+      // <dt> = data/hora (timestamp)
+      // <odm> = hodômetro
+      const latStr = parseXmlValue(msgXml, "lat") || parseXmlValue(msgXml, "latitude") || "0";
+      const lonStr = parseXmlValue(msgXml, "lon") || parseXmlValue(msgXml, "longitude") || parseXmlValue(msgXml, "lng") || "0";
+      
+      const lat = parseCoordinate(latStr);
+      const lng = parseCoordinate(lonStr);
+      
       const vel = parseInt(parseXmlValue(msgXml, "velocidade") || parseXmlValue(msgXml, "vel") || "0", 10);
       const ign = parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
-      const odo = parseInt(parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odm") || parseXmlValue(msgXml, "odo") || "0", 10);
+      
+      // MAPEAMENTO: <odm> para hodômetro (prioridade)
+      const odo = parseInt(parseXmlValue(msgXml, "odm") || parseXmlValue(msgXml, "odometro") || parseXmlValue(msgXml, "odo") || "0", 10);
+      
+      // MAPEAMENTO: <dt> para timestamp (prioridade)
+      const dataHoraRaw = parseXmlValue(msgXml, "dt") || parseXmlValue(msgXml, "dataHora") || parseXmlValue(msgXml, "data");
       
       // Extrair mId da mensagem para persistência (tag correta: mId ou mID)
       const mIdStr = parseXmlValue(msgXml, "mId") || parseXmlValue(msgXml, "mID") || parseXmlValue(msgXml, "mid") || "0";
@@ -637,7 +673,7 @@ serve(async (req) => {
         ignicao: ign === "1" || ign === "true" || ign === "on",
         direcao: dir,
         odometro: odo,
-        dataHora: parseXmlValue(msgXml, "dataHora") || parseXmlValue(msgXml, "data") || undefined,
+        dataHora: dataHoraRaw || undefined,
         motorista: parseXmlValue(msgXml, "mot") || parseXmlValue(msgXml, "motorista") || undefined,
         motID: motID || undefined,
         macro: macro || undefined,
