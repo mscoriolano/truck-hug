@@ -268,9 +268,12 @@ const Telemetria = () => {
           </div>
         </div>
 
-        {/* Cards de resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
+        {/* Cards de resumo - clicáveis para filtrar */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-primary/50", dashboardFilter === 'all' && "ring-2 ring-primary")}
+            onClick={() => toggleFilter('all')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-primary/20">
@@ -284,25 +287,31 @@ const Telemetria = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-success/50", dashboardFilter === 'ignition' && "ring-2 ring-success")}
+            onClick={() => toggleFilter('ignition')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-success/20">
                   <Activity className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{activeVehicles}</p>
+                  <p className="text-2xl font-bold">{ignitionOn}</p>
                   <p className="text-sm text-muted-foreground">Ignição Ligada</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-emerald-500/50", dashboardFilter === 'moving' && "ring-2 ring-emerald-500")}
+            onClick={() => toggleFilter('moving')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-amber-500/20">
-                  <Gauge className="h-6 w-6 text-amber-500" />
+                <div className="p-3 rounded-full bg-emerald-500/20">
+                  <Gauge className="h-6 w-6 text-emerald-500" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{movingVehicles}</p>
@@ -312,7 +321,27 @@ const Telemetria = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-amber-500/50", dashboardFilter === 'idle' && "ring-2 ring-amber-500")}
+            onClick={() => toggleFilter('idle')}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-full bg-amber-500/20">
+                  <Timer className="h-6 w-6 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{idleVehicles}</p>
+                  <p className="text-sm text-muted-foreground">Ociosidade</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-destructive/50", dashboardFilter === 'alerts' && "ring-2 ring-destructive")}
+            onClick={() => toggleFilter('alerts')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-destructive/20">
@@ -326,6 +355,17 @@ const Telemetria = () => {
             </CardContent>
           </Card>
         </div>
+
+        {dashboardFilter && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-sm">
+              Filtro: {dashboardFilter === 'all' ? 'Todos' : dashboardFilter === 'ignition' ? 'Ignição Ligada' : dashboardFilter === 'moving' ? 'Em Movimento' : dashboardFilter === 'idle' ? 'Ociosidade' : dashboardFilter === 'off' ? 'Desligados' : 'Alertas'}
+            </Badge>
+            <Button variant="ghost" size="sm" onClick={() => setDashboardFilter(null)}>
+              Limpar filtro
+            </Button>
+          </div>
+        )}
 
         {/* Tab: Mapa */}
         <TabsContent value="mapa" className="space-y-6">
