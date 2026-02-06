@@ -67,9 +67,10 @@ interface VehicleMapProps {
   className?: string;
   showControls?: boolean;
   selectedVehicleId?: string;
+  filterData?: VehicleTelemetry[] | null;
 }
 
-export function VehicleMap({ className, showControls = true, selectedVehicleId }: VehicleMapProps) {
+export function VehicleMap({ className, showControls = true, selectedVehicleId, filterData }: VehicleMapProps) {
   const { data: telemetryData, isLoading: telemetryLoading, refetch } = useVehicleTelemetry();
   const { data: vehicles } = useVehicles();
   const syncTelemetry = useSyncTelemetry();
