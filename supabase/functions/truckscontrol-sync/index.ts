@@ -790,16 +790,29 @@ Deno.serve(async (req) => {
       if (existingVehicle) {
         vehiclesMatched++;
         
-        // Atualizar odômetro se disponível e maior que o atual
+        // Atualizar truckscontrol_id + odômetro se disponível e maior que o atual
+        const updates: Record<string, unknown> = {};
+        
+        if (vehicle.veiID) {
+          updates.truckscontrol_id = vehicle.veiID;
+        }
+        
         if (vehicle.odometro && vehicle.odometro > (existingVehicle.mileage || 0)) {
+          updates.mileage = vehicle.odometro;
+          vehiclesMileageUpdated++;
+          console.log(`[truckscontrol-sync] Odômetro atualizado: ${vehicle.placa} = ${vehicle.odometro} km`);
+        }
+        
+        if (Object.keys(updates).length > 0) {
           const { error: updateError } = await supabase
             .from("vehicles")
-            .update({ mileage: vehicle.odometro })
+            .update(updates)
             .eq("id", existingVehicle.id);
           
-          if (!updateError) {
-            vehiclesMileageUpdated++;
-            console.log(`[truckscontrol-sync] Odômetro atualizado: ${vehicle.placa} = ${vehicle.odometro} km`);
+          if (updateError) {
+            console.error(`[truckscontrol-sync] Erro ao atualizar ${vehicle.placa}:`, updateError);
+          } else if (vehicle.veiID) {
+            console.log(`[truckscontrol-sync] truckscontrol_id vinculado: ${vehicle.placa} -> ${vehicle.veiID}`);
           }
         }
         
@@ -834,11 +847,12 @@ Deno.serve(async (req) => {
             fuel_type: "diesel",
             status: "active",
             next_maintenance: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            truckscontrol_id: vehicle.veiID || null,
           });
         
         if (!insertError) {
           vehiclesCreated++;
-          console.log(`[truckscontrol-sync] Veículo criado: ${vehicle.placa} com ${vehicle.odometro || 0} km`);
+          console.log(`[truckscontrol-sync] Veículo criado: ${vehicle.placa} com ${vehicle.odometro || 0} km, truckscontrol_id=${vehicle.veiID}`);
         } else {
           console.error(`[truckscontrol-sync] Erro ao criar veículo ${vehicle.placa}:`, insertError);
         }
