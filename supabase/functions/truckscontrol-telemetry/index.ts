@@ -683,6 +683,9 @@ Deno.serve(async (req) => {
       const lt = parseFloat(parseXmlValue(msgXml, "lt") || "0");
       const evt34Raw = parseXmlValue(msgXml, "evt34");
       const evt35Raw = parseXmlValue(msgXml, "evt35");
+      const evt16Raw = parseXmlValue(msgXml, "evt16");
+      const evt105Raw = parseXmlValue(msgXml, "evt105");
+      const evt109Raw = parseXmlValue(msgXml, "evt109");
       
       const macro = parseXmlValue(msgXml, "macro") || 
                     parseXmlValue(msgXml, "MACRO") || 
