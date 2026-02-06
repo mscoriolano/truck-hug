@@ -76,6 +76,27 @@ export function FuelConsumptionChart() {
             fuelLevel: 0,
             source: 'manual',
           });
+          continue;
+        }
+      }
+
+      // Fallback adicional: se tem apenas 1 abastecimento, usar hodômetro do veículo
+      if (vehicleFuel.length === 1 && t && t.odometer > 0) {
+        const entry = vehicleFuel[0];
+        const km = Math.abs(t.odometer - entry.mileage);
+        const liters = Number(entry.liters);
+        if (km > 0 && liters > 0) {
+          const consumption = km / liters;
+          if (consumption > 0.1 && consumption < 20) {
+            results.push({
+              vehicle_plate: vehicle.plate,
+              consumption: parseFloat(consumption.toFixed(2)),
+              target,
+              difference: parseFloat((consumption - target).toFixed(2)),
+              fuelLevel: 0,
+              source: 'manual',
+            });
+          }
         }
       }
     }

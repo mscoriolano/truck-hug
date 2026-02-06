@@ -270,7 +270,7 @@ const Telemetria = () => {
         </div>
 
         {/* Cards de resumo - clicáveis para filtrar */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
           <Card 
             className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-primary/50", dashboardFilter === 'all' && "ring-2 ring-primary")}
             onClick={() => toggleFilter('all')}
