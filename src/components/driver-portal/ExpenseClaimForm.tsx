@@ -130,12 +130,12 @@ export const ExpenseClaimForm: React.FC = () => {
 
           <div className="space-y-2">
             <Label>Veículo (opcional)</Label>
-            <Select value={formData.vehicle_id} onValueChange={handleVehicleChange}>
+            <Select value={formData.vehicle_id || "none"} onValueChange={(v) => handleVehicleChange(v === "none" ? "" : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o veículo" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Nenhum</SelectItem>
+                <SelectItem value="none">Nenhum</SelectItem>
                 {vehicles.map(vehicle => (
                   <SelectItem key={vehicle.id} value={vehicle.id}>
                     {vehicle.plate} - {vehicle.model}
@@ -147,12 +147,12 @@ export const ExpenseClaimForm: React.FC = () => {
 
           <div className="space-y-2">
             <Label>Viagem Relacionada (opcional)</Label>
-            <Select value={formData.trip_id} onValueChange={(v) => setFormData(prev => ({ ...prev, trip_id: v }))}>
+            <Select value={formData.trip_id || "none"} onValueChange={(v) => setFormData(prev => ({ ...prev, trip_id: v === "none" ? "" : v }))}>
               <SelectTrigger>
                 <SelectValue placeholder="Selecione a viagem" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Nenhuma</SelectItem>
+                <SelectItem value="none">Nenhuma</SelectItem>
                 {trips.slice(0, 20).map(trip => (
                   <SelectItem key={trip.id} value={trip.id}>
                     {format(new Date(trip.departure_date), 'dd/MM/yyyy')} - {trip.vehicle_plate}
