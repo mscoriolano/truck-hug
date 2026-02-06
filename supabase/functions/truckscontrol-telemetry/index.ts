@@ -482,84 +482,52 @@ Deno.serve(async (req) => {
     let response: Response;
     try {
       response = await postXmlOnce();
-    } catch (e) {
+    } catch (fetchError) {
       // Retry 1x em abort/timeout: a API do fornecedor oscila.
-      const msg = String(e);
-      const isAbort = /abort/i.test(msg);
-      if (isAbort) {
+      const msg = String(fetchError);
+      const isAbortRetry = /abort/i.test(msg);
+      if (isAbortRetry) {
         console.warn("[truckscontrol-telemetry] first attempt timed out; retrying once...");
-        response = await postXmlOnce();
+        try {
+          response = await postXmlOnce();
+        } catch (retryError) {
+          const errMsg = String(retryError);
+          const isFailedToFetch = retryError instanceof TypeError && /failed to fetch/i.test(errMsg);
+          const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+          const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+          const isAbort = /abort/i.test(errMsg);
+          const type = isFailedToFetch ? "FAILED_TO_FETCH" : isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN";
+          const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+          const friendly = isFirewallLike ? "Erro de Firewall (Conexão Recusada)" : isAbort ? "Timeout ao conectar na TrucksControl" : "Erro de rede ao conectar na TrucksControl";
+          return new Response(JSON.stringify({ success: false, error: friendly, publicIp, timestamp: new Date().toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       } else {
-        throw e;
+        const errMsg = String(fetchError);
+        const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
+        const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+        const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+        const isAbort = /abort/i.test(errMsg);
+        const type = isFailedToFetch ? "FAILED_TO_FETCH" : isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN";
+
+        console.error("[truckscontrol-telemetry] NETWORK ERROR", { type, message: errMsg, endpoint: webserviceUrl, publicIp, timestamp: new Date().toISOString() });
+
+        const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+        const friendly = isFirewallLike ? "Erro de Firewall (Conexão Recusada)" : isAbort ? "Timeout ao conectar na TrucksControl" : "Erro de rede ao conectar na TrucksControl";
+
+        try {
+          await supabase.from("telemetry_settings").update({ last_error_debug: { publicIp, error: friendly, networkType: type, rawError: errMsg, endpoint: webserviceUrl, timestamp: new Date().toISOString() } }).eq("id", settingsData?.id);
+        } catch (saveErr) {
+          console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: false, error: friendly, publicIp, timestamp: new Date().toISOString(), endpoint: webserviceUrl,
+            debug: debugEnabled ? { publicIp, requestXmlMasked: xmlRequestMasked, rawError: errMsg, networkType: type } : undefined,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-    }
-      const errMsg = String(fetchError);
-      const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
-      const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
-      const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
-      const isAbort = /abort/i.test(errMsg);
-      
-      const type = isFailedToFetch
-        ? "FAILED_TO_FETCH"
-        : isConnectionError
-          ? "CONNECTION_REFUSED"
-          : isTlsError
-            ? "TLS_HANDSHAKE_FAILED"
-            : isAbort
-              ? "TIMEOUT_ABORTED"
-              : "UNKNOWN";
-
-      console.error("[truckscontrol-telemetry] NETWORK ERROR", {
-        type,
-        message: errMsg,
-        endpoint: webserviceUrl,
-        publicIp,
-        timestamp: new Date().toISOString(),
-      });
-
-      const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
-      const friendly = isFirewallLike
-        ? "Erro de Firewall (Conexão Recusada)"
-        : isAbort
-          ? "Timeout ao conectar na TrucksControl"
-          : "Erro de rede ao conectar na TrucksControl";
-
-      try {
-        await supabase
-          .from("telemetry_settings")
-          .update({
-            last_error_debug: {
-              publicIp,
-              error: friendly,
-              networkType: type,
-              rawError: errMsg,
-              endpoint: webserviceUrl,
-              timestamp: new Date().toISOString(),
-            },
-          })
-          .eq("id", settingsData?.id);
-      } catch (saveErr) {
-        console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: friendly,
-          publicIp,
-          timestamp: new Date().toISOString(),
-          endpoint: webserviceUrl,
-          debug: debugEnabled
-            ? {
-                publicIp,
-                requestXmlMasked: xmlRequestMasked,
-                rawError: errMsg,
-                networkType: type,
-              }
-            : undefined,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
     }
     clearTimeout(timeout);
 
