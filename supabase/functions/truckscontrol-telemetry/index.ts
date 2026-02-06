@@ -694,7 +694,8 @@ Deno.serve(async (req) => {
         latitude: lat,
         longitude: lng,
         velocidade: vel,
-        ignicao: ign === "1" || ign === "true" || ign === "on",
+        // Se vel > 0, forçar ignição ligada (safety net)
+        ignicao: vel > 0 || ign === "1" || ign === "true" || ign === "on",
         direcao: dir,
         odometro: odo,
         dataHora: dataHoraRaw || undefined,
