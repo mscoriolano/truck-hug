@@ -40,31 +40,14 @@ export function FuelConsumptionChart() {
       const target = vehicle.consumption_target || 3.5;
       const t = telemetry?.find((tel) => tel.vehicle_id === vehicle.id);
 
-      // Tentar dados automáticos da telemetria (fuel_level + odômetro)
-      if (t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
-        // Usar fuel_level e odômetro para estimar consumo
-        // Nota: consumo real precisa de delta entre leituras; aqui usamos o nível atual como indicador
-        const consumption = t.odometer > 0 && t.fuel_level > 0
-          ? Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)))
-          : target;
+      // Get all fuel entries for this vehicle, sorted by mileage
+      const vehicleFuel = (fuelEntries?.filter((f) => f.vehicle_id === vehicle.id) || [])
+        .sort((a, b) => a.mileage - b.mileage);
 
-        results.push({
-          vehicle_plate: vehicle.plate,
-          consumption: parseFloat(consumption.toFixed(2)),
-          target,
-          difference: parseFloat((consumption - target).toFixed(2)),
-          fuelLevel: t.fuel_level,
-          source: 'telemetry',
-        });
-        continue;
-      }
-
-      // Fallback: dados manuais de abastecimento
-      const vehicleFuel = fuelEntries?.filter((f) => f.vehicle_id === vehicle.id) || [];
+      // Method 1: Multiple manual entries — most reliable
       if (vehicleFuel.length >= 2) {
-        const sorted = [...vehicleFuel].sort((a, b) => a.mileage - b.mileage);
-        const totalKm = sorted[sorted.length - 1].mileage - sorted[0].mileage;
-        const totalLiters = sorted.reduce((acc, f) => acc + Number(f.liters), 0);
+        const totalKm = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
+        const totalLiters = vehicleFuel.reduce((acc, f) => acc + Number(f.liters), 0);
         const consumption = totalLiters > 0 ? totalKm / totalLiters : 0;
 
         if (consumption > 0) {
@@ -73,31 +56,45 @@ export function FuelConsumptionChart() {
             consumption: parseFloat(consumption.toFixed(2)),
             target,
             difference: parseFloat((consumption - target).toFixed(2)),
-            fuelLevel: 0,
+            fuelLevel: t?.fuel_level || 0,
             source: 'manual',
           });
           continue;
         }
       }
 
-      // Fallback adicional: se tem apenas 1 abastecimento, usar hodômetro do veículo
+      // Method 2: Single fuel entry + current telemetry odometer
       if (vehicleFuel.length === 1 && t && t.odometer > 0) {
         const entry = vehicleFuel[0];
         const km = Math.abs(t.odometer - entry.mileage);
         const liters = Number(entry.liters);
-        if (km > 0 && liters > 0) {
+        if (km > 10 && liters > 0) {
           const consumption = km / liters;
-          if (consumption > 0.1 && consumption < 20) {
+          if (consumption > 0.1) {
             results.push({
               vehicle_plate: vehicle.plate,
               consumption: parseFloat(consumption.toFixed(2)),
               target,
               difference: parseFloat((consumption - target).toFixed(2)),
-              fuelLevel: 0,
+              fuelLevel: t?.fuel_level || 0,
               source: 'manual',
             });
+            continue;
           }
         }
+      }
+
+      // Method 3: Telemetry fuel_level + odometer (if available)
+      if (t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
+        const consumption = Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)));
+        results.push({
+          vehicle_plate: vehicle.plate,
+          consumption: parseFloat(consumption.toFixed(2)),
+          target,
+          difference: parseFloat((consumption - target).toFixed(2)),
+          fuelLevel: t.fuel_level,
+          source: 'telemetry',
+        });
       }
     }
 
@@ -131,7 +128,7 @@ export function FuelConsumptionChart() {
               Consumo de Combustível
             </CardTitle>
             <CardDescription>
-              Consumo real vs meta (km/L) — Fontes: telemetria (&lt;lt&gt; + &lt;odm&gt;) e abastecimentos manuais
+              Consumo real vs meta (km/L)
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -232,7 +229,7 @@ export function FuelConsumptionChart() {
           <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
             <Fuel className="h-12 w-12 opacity-50" />
             <p>Nenhum dado de consumo disponível</p>
-            <p className="text-sm">Os dados serão exibidos quando a telemetria reportar tags &lt;lt&gt; e &lt;odm&gt;</p>
+            <p className="text-sm">Registre abastecimentos para ver o gráfico de consumo</p>
           </div>
         )}
 
