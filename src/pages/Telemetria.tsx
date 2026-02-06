@@ -82,7 +82,7 @@ const Telemetria = () => {
         switch (dashboardFilter) {
           case 'all': return true;
           case 'ignition': return t.ignition_on || t.speed > 0;
-          case 'moving': return t.speed > 0;
+          case 'moving': return t.speed > 0; // speed > 0 implica ignição
           case 'idle': return t.speed === 0 && t.ignition_on;
           case 'off': return !t.ignition_on && t.speed === 0;
           case 'alerts': return true; // alerts are separate
