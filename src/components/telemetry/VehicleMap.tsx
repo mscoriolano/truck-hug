@@ -67,17 +67,21 @@ interface VehicleMapProps {
   className?: string;
   showControls?: boolean;
   selectedVehicleId?: string;
+  filterData?: VehicleTelemetry[] | null;
 }
 
-export function VehicleMap({ className, showControls = true, selectedVehicleId }: VehicleMapProps) {
+export function VehicleMap({ className, showControls = true, selectedVehicleId, filterData }: VehicleMapProps) {
   const { data: telemetryData, isLoading: telemetryLoading, refetch } = useVehicleTelemetry();
   const { data: vehicles } = useVehicles();
   const syncTelemetry = useSyncTelemetry();
   const [mapCenter, setMapCenter] = useState<[number, number]>([-19.9167, -43.9345]); // Belo Horizonte
   const [mapZoom, setMapZoom] = useState(10);
 
+  // Use filtered data if provided, otherwise full telemetry
+  const sourceData = filterData || telemetryData;
+
   // Filtrar veículos com coordenadas válidas
-  const vehiclesWithLocation = telemetryData?.filter(
+  const vehiclesWithLocation = sourceData?.filter(
     (t) => t.latitude && t.longitude && t.latitude !== 0 && t.longitude !== 0
   ) || [];
 

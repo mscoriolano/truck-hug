@@ -25,8 +25,12 @@ interface TelemetryMessage {
   tfrID?: string;
   rpm?: number;
   lt?: number;
+  evt4?: boolean;
   evt34?: boolean;
   evt35?: boolean;
+  evt16?: boolean;
+  evt105?: boolean;
+  evt109?: boolean;
   mld?: number; // ID da mensagem para persistência
 }
 
@@ -478,84 +482,52 @@ Deno.serve(async (req) => {
     let response: Response;
     try {
       response = await postXmlOnce();
-    } catch (e) {
+    } catch (fetchError) {
       // Retry 1x em abort/timeout: a API do fornecedor oscila.
-      const msg = String(e);
-      const isAbort = /abort/i.test(msg);
-      if (isAbort) {
+      const msg = String(fetchError);
+      const isAbortRetry = /abort/i.test(msg);
+      if (isAbortRetry) {
         console.warn("[truckscontrol-telemetry] first attempt timed out; retrying once...");
-        response = await postXmlOnce();
+        try {
+          response = await postXmlOnce();
+        } catch (retryError) {
+          const errMsg = String(retryError);
+          const isFailedToFetch = retryError instanceof TypeError && /failed to fetch/i.test(errMsg);
+          const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+          const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+          const isAbort = /abort/i.test(errMsg);
+          const type = isFailedToFetch ? "FAILED_TO_FETCH" : isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN";
+          const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+          const friendly = isFirewallLike ? "Erro de Firewall (Conexão Recusada)" : isAbort ? "Timeout ao conectar na TrucksControl" : "Erro de rede ao conectar na TrucksControl";
+          return new Response(JSON.stringify({ success: false, error: friendly, publicIp, timestamp: new Date().toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
       } else {
-        throw e;
+        const errMsg = String(fetchError);
+        const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
+        const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
+        const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
+        const isAbort = /abort/i.test(errMsg);
+        const type = isFailedToFetch ? "FAILED_TO_FETCH" : isConnectionError ? "CONNECTION_REFUSED" : isTlsError ? "TLS_HANDSHAKE_FAILED" : isAbort ? "TIMEOUT_ABORTED" : "UNKNOWN";
+
+        console.error("[truckscontrol-telemetry] NETWORK ERROR", { type, message: errMsg, endpoint: webserviceUrl, publicIp, timestamp: new Date().toISOString() });
+
+        const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
+        const friendly = isFirewallLike ? "Erro de Firewall (Conexão Recusada)" : isAbort ? "Timeout ao conectar na TrucksControl" : "Erro de rede ao conectar na TrucksControl";
+
+        try {
+          await supabase.from("telemetry_settings").update({ last_error_debug: { publicIp, error: friendly, networkType: type, rawError: errMsg, endpoint: webserviceUrl, timestamp: new Date().toISOString() } }).eq("id", settingsData?.id);
+        } catch (saveErr) {
+          console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
+        }
+
+        return new Response(
+          JSON.stringify({
+            success: false, error: friendly, publicIp, timestamp: new Date().toISOString(), endpoint: webserviceUrl,
+            debug: debugEnabled ? { publicIp, requestXmlMasked: xmlRequestMasked, rawError: errMsg, networkType: type } : undefined,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
-    }
-      const errMsg = String(fetchError);
-      const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
-      const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
-      const isTlsError = /tls|handshake|ssl|certificate/i.test(errMsg);
-      const isAbort = /abort/i.test(errMsg);
-      
-      const type = isFailedToFetch
-        ? "FAILED_TO_FETCH"
-        : isConnectionError
-          ? "CONNECTION_REFUSED"
-          : isTlsError
-            ? "TLS_HANDSHAKE_FAILED"
-            : isAbort
-              ? "TIMEOUT_ABORTED"
-              : "UNKNOWN";
-
-      console.error("[truckscontrol-telemetry] NETWORK ERROR", {
-        type,
-        message: errMsg,
-        endpoint: webserviceUrl,
-        publicIp,
-        timestamp: new Date().toISOString(),
-      });
-
-      const isFirewallLike = isFailedToFetch || isConnectionError || isTlsError;
-      const friendly = isFirewallLike
-        ? "Erro de Firewall (Conexão Recusada)"
-        : isAbort
-          ? "Timeout ao conectar na TrucksControl"
-          : "Erro de rede ao conectar na TrucksControl";
-
-      try {
-        await supabase
-          .from("telemetry_settings")
-          .update({
-            last_error_debug: {
-              publicIp,
-              error: friendly,
-              networkType: type,
-              rawError: errMsg,
-              endpoint: webserviceUrl,
-              timestamp: new Date().toISOString(),
-            },
-          })
-          .eq("id", settingsData?.id);
-      } catch (saveErr) {
-        console.warn("[truckscontrol-telemetry] Failed to save error debug:", String(saveErr));
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: friendly,
-          publicIp,
-          timestamp: new Date().toISOString(),
-          endpoint: webserviceUrl,
-          debug: debugEnabled
-            ? {
-                publicIp,
-                requestXmlMasked: xmlRequestMasked,
-                rawError: errMsg,
-                networkType: type,
-              }
-            : undefined,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
     }
     clearTimeout(timeout);
 
@@ -650,7 +622,9 @@ Deno.serve(async (req) => {
       const lng = parseCoordinate(lonStr);
       
       const vel = parseInt(parseXmlValue(msgXml, "velocidade") || parseXmlValue(msgXml, "vel") || "0", 10);
-      const ign = parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
+      // Ignição: prioriza <evt4> (padrão TrucksControl), depois <ignicao>/<ign>
+      const evt4Raw = parseXmlValue(msgXml, "evt4");
+      const ign = evt4Raw || parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
       
       // MAPEAMENTO: <odm> para hodômetro (prioridade)
@@ -677,6 +651,9 @@ Deno.serve(async (req) => {
       const lt = parseFloat(parseXmlValue(msgXml, "lt") || "0");
       const evt34Raw = parseXmlValue(msgXml, "evt34");
       const evt35Raw = parseXmlValue(msgXml, "evt35");
+      const evt16Raw = parseXmlValue(msgXml, "evt16");
+      const evt105Raw = parseXmlValue(msgXml, "evt105");
+      const evt109Raw = parseXmlValue(msgXml, "evt109");
       
       const macro = parseXmlValue(msgXml, "macro") || 
                     parseXmlValue(msgXml, "MACRO") || 
@@ -692,7 +669,8 @@ Deno.serve(async (req) => {
         latitude: lat,
         longitude: lng,
         velocidade: vel,
-        ignicao: ign === "1" || ign === "true" || ign === "on",
+        // Se vel > 0, forçar ignição ligada (safety net)
+        ignicao: vel > 0 || ign === "1" || ign === "true" || ign === "on",
         direcao: dir,
         odometro: odo,
         dataHora: dataHoraRaw || undefined,
@@ -703,9 +681,13 @@ Deno.serve(async (req) => {
         tfrID: tfrID || undefined,
         rpm: rpm || undefined,
         lt: lt || undefined,
+        evt4: evt4Raw === "1" || evt4Raw === "true",
         evt34: evt34Raw === "1" || evt34Raw === "true",
         evt35: evt35Raw === "1" || evt35Raw === "true",
-        mld: mId || undefined, // mId extraído da resposta, salvo no campo mld do objeto
+        evt16: evt16Raw === "1" || evt16Raw === "true",
+        evt105: evt105Raw === "1" || evt105Raw === "true",
+        evt109: evt109Raw === "1" || evt109Raw === "true",
+        mld: mId || undefined,
       };
 
       if (msg.placa || msg.veiID) {
@@ -783,6 +765,15 @@ Deno.serve(async (req) => {
       // ==========================================
       // PASSO 4: Salvar telemetria COM o last_mld
       // ==========================================
+      // Construir lista de eventos ativos a partir dos dados já parseados no msg
+      const activeEvents: string[] = [];
+      if (msg.evt4) activeEvents.push("evt4");
+      if (msg.evt34) activeEvents.push("evt34");
+      if (msg.evt35) activeEvents.push("evt35");
+      if (msg.evt16) activeEvents.push("evt16");
+      if (msg.evt105) activeEvents.push("evt105");
+      if (msg.evt109) activeEvents.push("evt109");
+
       const telemetryUpsertPayload = {
         vehicle_id: vehicle.id,
         vehicle_plate: vehiclePlate,
@@ -793,6 +784,9 @@ Deno.serve(async (req) => {
         heading: msg.direcao,
         ignition_on: msg.ignicao,
         odometer: msg.odometro,
+        fuel_level: msg.lt || null,
+        rpm: msg.rpm || null,
+        events: activeEvents,
         gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
         received_at: new Date(),
         // Salva o mId individual (quando existir) ou o maior mId do lote

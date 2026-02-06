@@ -13,6 +13,9 @@ export interface VehicleTelemetry {
   heading: number;
   ignition_on: boolean;
   odometer: number;
+  fuel_level?: number;
+  rpm?: number;
+  events?: string[];
   engine_hours?: number;
   g_force_x?: number;
   g_force_y?: number;

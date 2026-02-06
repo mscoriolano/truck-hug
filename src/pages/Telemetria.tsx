@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -58,6 +59,7 @@ const Telemetria = () => {
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
+  const [dashboardFilter, setDashboardFilter] = useState<string | null>(null);
   
   // Estado para configurações
   const [speedLimitUrban, setSpeedLimitUrban] = useState(settings?.speed_limit_urban?.toString() || '60');
@@ -68,9 +70,30 @@ const Telemetria = () => {
   const [hardAccelThreshold, setHardAccelThreshold] = useState(settings?.hard_accel_threshold?.toString() || '0.4');
   const [expectedConsumption, setExpectedConsumption] = useState(settings?.expected_consumption?.toString() || '3.5');
 
-  const activeVehicles = telemetry?.filter(t => t.ignition_on).length || 0;
-  const movingVehicles = telemetry?.filter(t => t.speed > 0).length || 0;
+  // Contagens corrigidas: ignição via vel > 0 || ignition_on
+  const ignitionOn = telemetry?.filter(t => t.ignition_on || t.speed > 0).length || 0;
+  const movingVehicles = telemetry?.filter(t => t.speed > 0 && t.ignition_on).length || 0;
+  const idleVehicles = telemetry?.filter(t => t.speed === 0 && (t.ignition_on || false)).length || 0;
   const recentAlerts = alerts?.slice(0, 10) || [];
+
+  // Filtrar telemetria pelos cards clicáveis
+  const filteredTelemetry = dashboardFilter
+    ? telemetry?.filter(t => {
+        switch (dashboardFilter) {
+          case 'all': return true;
+          case 'ignition': return t.ignition_on || t.speed > 0;
+          case 'moving': return t.speed > 0;
+          case 'idle': return t.speed === 0 && t.ignition_on;
+          case 'off': return !t.ignition_on && t.speed === 0;
+          case 'alerts': return true; // alerts are separate
+          default: return true;
+        }
+      })
+    : telemetry;
+
+  const toggleFilter = (filter: string) => {
+    setDashboardFilter(prev => prev === filter ? null : filter);
+  };
 
   // Dados do veículo selecionado
   const selectedTelemetry = telemetry?.find(t => t.vehicle_id === selectedVehicle);
@@ -246,9 +269,12 @@ const Telemetria = () => {
           </div>
         </div>
 
-        {/* Cards de resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
+        {/* Cards de resumo - clicáveis para filtrar */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-primary/50", dashboardFilter === 'all' && "ring-2 ring-primary")}
+            onClick={() => toggleFilter('all')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-primary/20">
@@ -262,25 +288,31 @@ const Telemetria = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-success/50", dashboardFilter === 'ignition' && "ring-2 ring-success")}
+            onClick={() => toggleFilter('ignition')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-success/20">
                   <Activity className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{activeVehicles}</p>
+                  <p className="text-2xl font-bold">{ignitionOn}</p>
                   <p className="text-sm text-muted-foreground">Ignição Ligada</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-emerald-500/50", dashboardFilter === 'moving' && "ring-2 ring-emerald-500")}
+            onClick={() => toggleFilter('moving')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-amber-500/20">
-                  <Gauge className="h-6 w-6 text-amber-500" />
+                <div className="p-3 rounded-full bg-emerald-500/20">
+                  <Gauge className="h-6 w-6 text-emerald-500" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{movingVehicles}</p>
@@ -290,7 +322,27 @@ const Telemetria = () => {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-amber-500/50", dashboardFilter === 'idle' && "ring-2 ring-amber-500")}
+            onClick={() => toggleFilter('idle')}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-full bg-amber-500/20">
+                  <Timer className="h-6 w-6 text-amber-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{idleVehicles}</p>
+                  <p className="text-sm text-muted-foreground">Ociosidade</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-destructive/50", dashboardFilter === 'alerts' && "ring-2 ring-destructive")}
+            onClick={() => toggleFilter('alerts')}
+          >
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-full bg-destructive/20">
@@ -305,9 +357,20 @@ const Telemetria = () => {
           </Card>
         </div>
 
+        {dashboardFilter && (
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-sm">
+              Filtro: {dashboardFilter === 'all' ? 'Todos' : dashboardFilter === 'ignition' ? 'Ignição Ligada' : dashboardFilter === 'moving' ? 'Em Movimento' : dashboardFilter === 'idle' ? 'Ociosidade' : dashboardFilter === 'off' ? 'Desligados' : 'Alertas'}
+            </Badge>
+            <Button variant="ghost" size="sm" onClick={() => setDashboardFilter(null)}>
+              Limpar filtro
+            </Button>
+          </div>
+        )}
+
         {/* Tab: Mapa */}
         <TabsContent value="mapa" className="space-y-6">
-          <VehicleMap />
+          <VehicleMap filterData={filteredTelemetry} />
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
@@ -316,12 +379,13 @@ const Telemetria = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {telemetry?.map((t) => (
+                  {(filteredTelemetry || telemetry)?.map((t) => (
                     <div 
                       key={t.id} 
-                      className={`flex items-center justify-between p-3 rounded-lg bg-muted/30 cursor-pointer transition-colors ${
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-lg bg-muted/30 cursor-pointer transition-colors",
                         selectedVehicle === t.vehicle_id ? 'ring-2 ring-primary' : 'hover:bg-muted/50'
-                      }`}
+                      )}
                       onClick={() => setSelectedVehicle(t.vehicle_id)}
                     >
                       <div className="flex items-center gap-3">
@@ -329,12 +393,18 @@ const Telemetria = () => {
                         <div>
                           <p className="font-medium">{t.vehicle_plate}</p>
                           <p className="text-sm text-muted-foreground">
-                            {t.ignition_on ? 'Ignição ligada' : 'Ignição desligada'}
+                            {t.speed > 0 ? 'Em movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
                           </p>
                         </div>
                       </div>
-                      <Badge variant={t.speed > 0 ? "default" : t.ignition_on ? "secondary" : "outline"}>
-                        {t.speed > 0 ? 'Movimento' : t.ignition_on ? 'Parado' : 'Desligado'}
+                      <Badge 
+                        variant={t.speed > 0 ? "default" : t.ignition_on ? "secondary" : "outline"}
+                        className={cn(
+                          t.speed > 0 && "bg-success text-success-foreground",
+                          t.speed === 0 && t.ignition_on && "bg-amber-500 text-white",
+                        )}
+                      >
+                        {t.speed > 0 ? 'Movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
                       </Badge>
                     </div>
                   ))}

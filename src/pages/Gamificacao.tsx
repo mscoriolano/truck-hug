@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { useDrivers } from '@/hooks/useDrivers';
+import { useVehicles } from '@/hooks/useVehicles';
 import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { useMaintenances } from '@/hooks/useMaintenances';
 import { useTires } from '@/hooks/useTires';
@@ -70,6 +71,7 @@ const Gamificacao = () => {
   const [endDate, setEndDate] = useState<Date | undefined>();
 
   const { data: drivers, isLoading: loadingDrivers } = useDrivers();
+  const { data: vehicles } = useVehicles();
   const { data: fuelEntries, isLoading: loadingFuel } = useFuelEntries(startDate, endDate);
   const { data: maintenances, isLoading: loadingMaint } = useMaintenances();
   const { data: tires, isLoading: loadingTires } = useTires();
@@ -97,15 +99,22 @@ const Gamificacao = () => {
     const driverTrips = trips?.filter(t => t.driver_id === driver.id) || [];
     const totalCycles = driverTrips.reduce((acc, t) => acc + Number(t.cycle_value), 0);
     
-    // Manutenções corretivas
-    const correctiveMaint = maintenances?.filter(m => 
-      m.type === 'corrective' && m.status === 'completed'
-    ).length || 0;
+    // Manutenções corretivas para o veículo do motorista
+    const driverVehicleId = driver.current_vehicle 
+      ? (vehicles?.find(v => v.plate === driver.current_vehicle)?.id) 
+      : undefined;
+    const vehicleMaints = driverVehicleId 
+      ? maintenances?.filter(m => m.vehicle_id === driverVehicleId) || []
+      : [];
+    const correctiveMaint = vehicleMaints.filter(m => m.type === 'corrective' && m.status === 'completed').length;
+    const hasMaintenanceData = vehicleMaints.length > 0;
     
-    // Pneus críticos
-    const criticalTires = tires?.filter(t => 
-      t.status === 'critical' || t.status === 'replaced'
-    ).length || 0;
+    // Pneus para o veículo do motorista
+    const vehicleTires = driverVehicleId
+      ? tires?.filter(t => t.vehicle_id === driverVehicleId) || []
+      : [];
+    const criticalTires = vehicleTires.filter(t => t.status === 'critical' || t.status === 'replaced').length;
+    const hasTireData = vehicleTires.length > 0;
 
     // Estatísticas de telemetria do motorista
     const driverStats = tripStats?.filter(s => s.driver_id === driver.id) || [];
@@ -131,8 +140,8 @@ const Gamificacao = () => {
       ? Math.min(100, Math.max(0, Math.round(telemetryConsumption * 25))) // Meta: 4 km/L
       : (avgConsumption > 0 ? Math.min(100, Math.max(0, Math.round((avgConsumption / 4) * 100))) : 50);
     
-    const tireScore = Math.max(0, 100 - (criticalTires * 15));
-    const maintScore = Math.max(0, 100 - (correctiveMaint * 10));
+    const tireScore = hasTireData ? Math.max(0, 100 - (criticalTires * 15)) : null;
+    const maintScore = hasMaintenanceData ? Math.max(0, 100 - (correctiveMaint * 10)) : null;
     const journeyScore = driver.status === 'driving' || driver.status === 'available' ? 85 : 70;
     
     // Score de velocidade baseado em tempo acima do limite e eventos
@@ -145,14 +154,35 @@ const Gamificacao = () => {
     const gForcePenalty = (totalHardBrakes * 3) + (totalHardAccels * 2) + (totalHardTurns * 2);
     const gForceScore = Math.max(0, 100 - gForcePenalty);
 
-    // Score total (agora inclui comportamento de direção)
+    // REGRA DE JUSTIÇA: se não há dados de pneus/manutenção, redistribuir o peso
+    // Pesos base: consumo 0.2, velocidade 0.25, gForce 0.2, jornada 0.15, pneus 0.1, manutenção 0.1
+    let weights = {
+      fuel: 0.2,
+      speed: 0.25,
+      gForce: 0.2,
+      journey: 0.15,
+      tire: hasTireData ? 0.1 : 0,
+      maint: hasMaintenanceData ? 0.1 : 0,
+    };
+    
+    // Redistribuir pesos não utilizados proporcionalmente
+    const unusedWeight = (hasTireData ? 0 : 0.1) + (hasMaintenanceData ? 0 : 0.1);
+    if (unusedWeight > 0) {
+      const activeWeights = weights.fuel + weights.speed + weights.gForce + weights.journey;
+      const scaleFactor = (activeWeights + unusedWeight) / activeWeights;
+      weights.fuel *= scaleFactor;
+      weights.speed *= scaleFactor;
+      weights.gForce *= scaleFactor;
+      weights.journey *= scaleFactor;
+    }
+
     const totalScore = Math.round(
-      (fuelScore * 0.2) + 
-      (tireScore * 0.1) + 
-      (maintScore * 0.1) + 
-      (journeyScore * 0.15) + 
-      (speedScore * 0.25) + 
-      (gForceScore * 0.2)
+      (fuelScore * weights.fuel) + 
+      ((tireScore ?? 0) * weights.tire) + 
+      ((maintScore ?? 0) * weights.maint) + 
+      (journeyScore * weights.journey) + 
+      (speedScore * weights.speed) + 
+      (gForceScore * weights.gForce)
     );
 
     return {
@@ -160,12 +190,14 @@ const Gamificacao = () => {
       name: driver.name,
       status: driver.status,
       fuelScore,
-      tireScore,
-      maintScore,
+      tireScore: tireScore ?? null,
+      maintScore: maintScore ?? null,
       journeyScore,
       speedScore,
       gForceScore,
       totalScore,
+      hasTireData,
+      hasMaintenanceData,
       avgConsumption: telemetryConsumption?.toFixed(2) || avgConsumption.toFixed(2),
       totalKm: totalTelemetryKm > 0 ? totalTelemetryKm : totalKm,
       totalCycles,
@@ -364,9 +396,13 @@ const Gamificacao = () => {
                       ].map((score, i) => (
                         <div key={i} className="text-center">
                           <p className="text-xs text-muted-foreground">{score.label}</p>
-                          <p className={cn("font-semibold text-sm", getScoreColor(score.value))}>
-                            {score.value}
-                          </p>
+                          {score.value !== null ? (
+                            <p className={cn("font-semibold text-sm", getScoreColor(score.value))}>
+                              {score.value}
+                            </p>
+                          ) : (
+                            <p className="font-semibold text-sm text-muted-foreground">—</p>
+                          )}
                         </div>
                       ))}
                     </div>
