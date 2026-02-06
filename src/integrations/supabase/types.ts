@@ -1895,6 +1895,7 @@ export type Database = {
           next_maintenance: string
           plate: string
           status: string
+          truckscontrol_id: string | null
           updated_at: string
           year: number
         }
@@ -1909,6 +1910,7 @@ export type Database = {
           next_maintenance: string
           plate: string
           status?: string
+          truckscontrol_id?: string | null
           updated_at?: string
           year: number
         }
@@ -1923,6 +1925,7 @@ export type Database = {
           next_maintenance?: string
           plate?: string
           status?: string
+          truckscontrol_id?: string | null
           updated_at?: string
           year?: number
         }
