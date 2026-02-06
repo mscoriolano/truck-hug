@@ -396,9 +396,13 @@ const Gamificacao = () => {
                       ].map((score, i) => (
                         <div key={i} className="text-center">
                           <p className="text-xs text-muted-foreground">{score.label}</p>
-                          <p className={cn("font-semibold text-sm", getScoreColor(score.value))}>
-                            {score.value}
-                          </p>
+                          {score.value !== null ? (
+                            <p className={cn("font-semibold text-sm", getScoreColor(score.value))}>
+                              {score.value}
+                            </p>
+                          ) : (
+                            <p className="font-semibold text-sm text-muted-foreground">—</p>
+                          )}
                         </div>
                       ))}
                     </div>
