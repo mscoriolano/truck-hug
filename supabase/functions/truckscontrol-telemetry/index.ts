@@ -650,7 +650,9 @@ Deno.serve(async (req) => {
       const lng = parseCoordinate(lonStr);
       
       const vel = parseInt(parseXmlValue(msgXml, "velocidade") || parseXmlValue(msgXml, "vel") || "0", 10);
-      const ign = parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
+      // Ignição: prioriza <evt4> (padrão TrucksControl), depois <ignicao>/<ign>
+      const evt4Raw = parseXmlValue(msgXml, "evt4");
+      const ign = evt4Raw || parseXmlValue(msgXml, "ignicao") || parseXmlValue(msgXml, "ign");
       const dir = parseInt(parseXmlValue(msgXml, "direcao") || parseXmlValue(msgXml, "dir") || "0", 10);
       
       // MAPEAMENTO: <odm> para hodômetro (prioridade)
