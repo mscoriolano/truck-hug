@@ -70,9 +70,9 @@ const Telemetria = () => {
   const [hardAccelThreshold, setHardAccelThreshold] = useState(settings?.hard_accel_threshold?.toString() || '0.4');
   const [expectedConsumption, setExpectedConsumption] = useState(settings?.expected_consumption?.toString() || '3.5');
 
-  // Contagens corrigidas: ignição via vel > 0 || ignition_on
+  // Contagens corrigidas: speed > 0 implica ignição ligada (safety net)
   const ignitionOn = telemetry?.filter(t => t.ignition_on || t.speed > 0).length || 0;
-  const movingVehicles = telemetry?.filter(t => t.speed > 0 && t.ignition_on).length || 0;
+  const movingVehicles = telemetry?.filter(t => t.speed > 0).length || 0;
   const idleVehicles = telemetry?.filter(t => t.speed === 0 && (t.ignition_on || false)).length || 0;
   const recentAlerts = alerts?.slice(0, 10) || [];
 
