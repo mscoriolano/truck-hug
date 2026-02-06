@@ -370,7 +370,7 @@ const Telemetria = () => {
 
         {/* Tab: Mapa */}
         <TabsContent value="mapa" className="space-y-6">
-          <VehicleMap />
+          <VehicleMap filterData={filteredTelemetry} />
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
