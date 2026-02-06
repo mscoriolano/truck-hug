@@ -82,6 +82,10 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Força uma única instância de React/ReactDOM (alguns bundles podem resolver caminhos diferentes)
+      react: path.resolve(__dirname, "./node_modules/react"),
+      "react-dom": path.resolve(__dirname, "./node_modules/react-dom"),
+      "react/jsx-runtime": path.resolve(__dirname, "./node_modules/react/jsx-runtime"),
     },
     // Previne instâncias duplicadas do React (causa erro "render2 is not a function")
     dedupe: ["react", "react-dom", "react/jsx-runtime"],
