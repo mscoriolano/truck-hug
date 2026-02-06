@@ -71,6 +71,7 @@ const Gamificacao = () => {
   const [endDate, setEndDate] = useState<Date | undefined>();
 
   const { data: drivers, isLoading: loadingDrivers } = useDrivers();
+  const { data: vehicles } = useVehicles();
   const { data: fuelEntries, isLoading: loadingFuel } = useFuelEntries(startDate, endDate);
   const { data: maintenances, isLoading: loadingMaint } = useMaintenances();
   const { data: tires, isLoading: loadingTires } = useTires();
