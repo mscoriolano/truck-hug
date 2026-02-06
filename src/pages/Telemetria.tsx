@@ -70,9 +70,9 @@ const Telemetria = () => {
   const [hardAccelThreshold, setHardAccelThreshold] = useState(settings?.hard_accel_threshold?.toString() || '0.4');
   const [expectedConsumption, setExpectedConsumption] = useState(settings?.expected_consumption?.toString() || '3.5');
 
-  // Contagens corrigidas: ignição via vel > 0 || ignition_on
+  // Contagens corrigidas: speed > 0 implica ignição ligada (safety net)
   const ignitionOn = telemetry?.filter(t => t.ignition_on || t.speed > 0).length || 0;
-  const movingVehicles = telemetry?.filter(t => t.speed > 0 && t.ignition_on).length || 0;
+  const movingVehicles = telemetry?.filter(t => t.speed > 0).length || 0;
   const idleVehicles = telemetry?.filter(t => t.speed === 0 && (t.ignition_on || false)).length || 0;
   const recentAlerts = alerts?.slice(0, 10) || [];
 
@@ -82,7 +82,7 @@ const Telemetria = () => {
         switch (dashboardFilter) {
           case 'all': return true;
           case 'ignition': return t.ignition_on || t.speed > 0;
-          case 'moving': return t.speed > 0;
+          case 'moving': return t.speed > 0; // speed > 0 implica ignição
           case 'idle': return t.speed === 0 && t.ignition_on;
           case 'off': return !t.ignition_on && t.speed === 0;
           case 'alerts': return true; // alerts are separate
@@ -270,7 +270,7 @@ const Telemetria = () => {
         </div>
 
         {/* Cards de resumo - clicáveis para filtrar */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
           <Card 
             className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-primary/50", dashboardFilter === 'all' && "ring-2 ring-primary")}
             onClick={() => toggleFilter('all')}

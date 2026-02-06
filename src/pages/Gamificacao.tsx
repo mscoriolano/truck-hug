@@ -86,7 +86,7 @@ const Gamificacao = () => {
   const isLoading = loadingDrivers || loadingFuel || loadingMaint || loadingTires || loadingTrips || loadingStats;
 
   // Calcular pontuações por motorista usando dados reais de telemetria
-  const driverPerformance = drivers?.filter(d => d.status !== 'terminated').map(driver => {
+  const driverPerformance = drivers?.filter(d => d.status !== 'terminated' && d.status !== 'off').map(driver => {
     // Abastecimentos do motorista no período
     const driverFuel = fuelEntries?.filter(f => f.driver_id === driver.id) || [];
     const totalLiters = driverFuel.reduce((acc, f) => acc + Number(f.liters), 0);
