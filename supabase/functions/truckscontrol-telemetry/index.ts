@@ -450,7 +450,7 @@ Deno.serve(async (req) => {
     console.log("[truckscontrol-telemetry] endpoint:", webserviceUrl);
 
     const controller = new AbortController();
-    const timeoutMs = 60_000; // 60 segundos
+    const timeoutMs = 90_000; // 90 segundos para evitar timeout da API TrucksControl
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     let response: Response;
