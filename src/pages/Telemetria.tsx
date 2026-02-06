@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
