@@ -4,6 +4,8 @@ import { Header } from './Header';
 import { cn } from '@/lib/utils';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CriticalAlertOverlay } from '@/components/control-tower/CriticalAlertOverlay';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -13,9 +15,13 @@ interface MainLayoutProps {
 
 export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { isManager } = useUserRole();
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Critical Alerts Overlay - only for managers */}
+      {isManager && <CriticalAlertOverlay />}
+      
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div 

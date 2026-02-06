@@ -637,6 +637,8 @@ export type Database = {
       drivers: {
         Row: {
           ac: string | null
+          allowed_journey_end: string | null
+          allowed_journey_start: string | null
           avatar: string | null
           cnh_category: string | null
           cnh_expiry: string | null
@@ -650,10 +652,13 @@ export type Database = {
           r3: string | null
           status: string
           total_hours_today: number | null
+          truckscontrol_id: string | null
           updated_at: string
         }
         Insert: {
           ac?: string | null
+          allowed_journey_end?: string | null
+          allowed_journey_start?: string | null
           avatar?: string | null
           cnh_category?: string | null
           cnh_expiry?: string | null
@@ -667,10 +672,13 @@ export type Database = {
           r3?: string | null
           status?: string
           total_hours_today?: number | null
+          truckscontrol_id?: string | null
           updated_at?: string
         }
         Update: {
           ac?: string | null
+          allowed_journey_end?: string | null
+          allowed_journey_start?: string | null
           avatar?: string | null
           cnh_category?: string | null
           cnh_expiry?: string | null
@@ -684,6 +692,7 @@ export type Database = {
           r3?: string | null
           status?: string
           total_hours_today?: number | null
+          truckscontrol_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1087,6 +1096,57 @@ export type Database = {
           updated_at?: string
           variable_cost?: number
           year?: number
+        }
+        Relationships: []
+      }
+      offline_journey_queue: {
+        Row: {
+          created_at: string
+          driver_id: string
+          event_timestamp: string
+          event_type: string
+          id: string
+          latitude: number | null
+          location_name: string | null
+          longitude: number | null
+          mileage: number | null
+          sync_error: string | null
+          synced: boolean | null
+          synced_at: string | null
+          vehicle_id: string | null
+          vehicle_plate: string | null
+        }
+        Insert: {
+          created_at?: string
+          driver_id: string
+          event_timestamp: string
+          event_type: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          mileage?: number | null
+          sync_error?: string | null
+          synced?: boolean | null
+          synced_at?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
+        }
+        Update: {
+          created_at?: string
+          driver_id?: string
+          event_timestamp?: string
+          event_type?: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          mileage?: number | null
+          sync_error?: string | null
+          synced?: boolean | null
+          synced_at?: string | null
+          vehicle_id?: string | null
+          vehicle_plate?: string | null
         }
         Relationships: []
       }
@@ -1792,6 +1852,8 @@ export type Database = {
         Row: {
           created_at: string
           engine_hours: number | null
+          events: Json | null
+          fuel_level: number | null
           g_force_x: number | null
           g_force_y: number | null
           g_force_z: number | null
@@ -1804,6 +1866,7 @@ export type Database = {
           longitude: number | null
           odometer: number | null
           received_at: string
+          rpm: number | null
           speed: number | null
           truckscontrol_id: string | null
           vehicle_id: string
@@ -1812,6 +1875,8 @@ export type Database = {
         Insert: {
           created_at?: string
           engine_hours?: number | null
+          events?: Json | null
+          fuel_level?: number | null
           g_force_x?: number | null
           g_force_y?: number | null
           g_force_z?: number | null
@@ -1824,6 +1889,7 @@ export type Database = {
           longitude?: number | null
           odometer?: number | null
           received_at?: string
+          rpm?: number | null
           speed?: number | null
           truckscontrol_id?: string | null
           vehicle_id: string
@@ -1832,6 +1898,8 @@ export type Database = {
         Update: {
           created_at?: string
           engine_hours?: number | null
+          events?: Json | null
+          fuel_level?: number | null
           g_force_x?: number | null
           g_force_y?: number | null
           g_force_z?: number | null
@@ -1844,6 +1912,7 @@ export type Database = {
           longitude?: number | null
           odometer?: number | null
           received_at?: string
+          rpm?: number | null
           speed?: number | null
           truckscontrol_id?: string | null
           vehicle_id?: string

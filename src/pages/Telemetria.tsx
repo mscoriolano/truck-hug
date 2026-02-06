@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useVehicleTelemetry, useTelemetryAlerts, useTelemetrySettings, useUpdateTelemetrySettings } from '@/hooks/useTelemetry';
 import { useVehicles } from '@/hooks/useVehicles';
+import { useUserRole } from '@/hooks/useUserRole';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,13 +13,16 @@ import { Label } from '@/components/ui/label';
 import { 
   MapPin, AlertTriangle, Gauge, Activity, Settings, 
   Fuel, Zap, ChevronDown, ChevronUp,
-  Check
+  Check, Timer
 } from 'lucide-react';
 import { TelemetryReportExport } from '@/components/reports/TelemetryReportExport';
 import { NotificationSettings } from '@/components/notifications/NotificationSettings';
 import { SpeedGauge } from '@/components/telemetry/SpeedGauge';
 import { GForceGauge } from '@/components/telemetry/GForceGauge';
 import { FuelConsumptionGauge } from '@/components/telemetry/FuelConsumptionGauge';
+import { LiveSpeedometers } from '@/components/telemetry/LiveSpeedometers';
+import { IdleTimeChart } from '@/components/telemetry/IdleTimeChart';
+import { FuelConsumptionChart } from '@/components/telemetry/FuelConsumptionChart';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -133,6 +137,10 @@ const Telemetria = () => {
             <TabsTrigger value="consumo">
               <Fuel className="w-4 h-4 mr-2" />
               Consumo
+            </TabsTrigger>
+            <TabsTrigger value="ociosidade">
+              <Timer className="w-4 h-4 mr-2" />
+              Ociosidade
             </TabsTrigger>
             <TabsTrigger value="alertas">
               <AlertTriangle className="w-4 h-4 mr-2" />
@@ -523,34 +531,12 @@ const Telemetria = () => {
 
         {/* Tab: Consumo */}
         <TabsContent value="consumo" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Consumo de Combustível</CardTitle>
-              <CardDescription>
-                Dados calculados a partir dos abastecimentos registrados manualmente. 
-                Meta geral: {settings?.expected_consumption || 3.5} km/l
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12 space-y-4">
-                <div className="p-4 rounded-full bg-warning/20 w-fit mx-auto">
-                  <Fuel className="h-12 w-12 text-warning" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">Aguardando dados de telemetria</h3>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    A integração com a TrucksControl ainda não está retornando dados. 
-                    Para visualizar consumo real, acesse a página de <strong>Abastecimentos</strong> onde os cálculos são feitos a partir dos dados manuais.
-                  </p>
-                </div>
-                <div className="pt-4">
-                  <Badge variant="outline" className="text-sm">
-                    Os dados de consumo automáticos serão exibidos aqui quando a telemetria estiver ativa
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <FuelConsumptionChart />
+        </TabsContent>
+
+        {/* Tab: Ociosidade */}
+        <TabsContent value="ociosidade" className="space-y-6">
+          <IdleTimeChart />
         </TabsContent>
 
         {/* Tab: Alertas */}

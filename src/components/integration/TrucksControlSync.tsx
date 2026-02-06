@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface SyncResult {
   success: boolean;
@@ -156,6 +157,7 @@ function debugBundleResponsesToXml(bundle: DebugBundle) {
 }
 
 export function TrucksControlSync() {
+  const { isManager } = useUserRole();
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<SyncResult | null>(null);
   const [lastTelemetry, setLastTelemetry] = useState<TelemetryResult | null>(null);
@@ -646,21 +648,28 @@ export function TrucksControlSync() {
           </div>
         )}
 
-        <Button onClick={handleSync} disabled={isSyncing} className="w-full">
-          {isSyncing ? (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              Sincronizando...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Sincronizar Agora
-            </>
-          )}
-        </Button>
+        {/* Sync button - only visible to managers */}
+        {isManager && (
+          <Button onClick={handleSync} disabled={isSyncing} className="w-full">
+            {isSyncing ? (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                Sincronizando...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sincronizar Agora
+              </>
+            )}
+          </Button>
+        )}
 
-        <p className="text-center text-xs text-muted-foreground">A sincronização automática ocorre a cada 5 minutos</p>
+        <p className="text-center text-xs text-muted-foreground">
+          {isManager 
+            ? 'A sincronização automática ocorre a cada 5 minutos'
+            : 'Sincronização automática: telemetria 1 min, dados estáticos 5 min'}
+        </p>
       </CardContent>
     </Card>
   );
