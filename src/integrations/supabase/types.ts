@@ -1853,7 +1853,7 @@ export type Database = {
           {
             foreignKeyName: "vehicle_telemetry_vehicle_id_fkey"
             columns: ["vehicle_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "vehicles"
             referencedColumns: ["id"]
           },
