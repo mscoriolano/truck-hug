@@ -25,8 +25,12 @@ interface TelemetryMessage {
   tfrID?: string;
   rpm?: number;
   lt?: number;
+  evt4?: boolean;
   evt34?: boolean;
   evt35?: boolean;
+  evt16?: boolean;
+  evt105?: boolean;
+  evt109?: boolean;
   mld?: number; // ID da mensagem para persistência
 }
 
