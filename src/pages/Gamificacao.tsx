@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { DateRangeFilter } from '@/components/DateRangeFilter';
 import { useDrivers } from '@/hooks/useDrivers';
+import { useVehicles } from '@/hooks/useVehicles';
 import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { useMaintenances } from '@/hooks/useMaintenances';
 import { useTires } from '@/hooks/useTires';
