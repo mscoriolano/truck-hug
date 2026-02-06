@@ -786,6 +786,19 @@ Deno.serve(async (req) => {
       // ==========================================
       // PASSO 4: Salvar telemetria COM o last_mld
       // ==========================================
+      // Construir lista de eventos ativos
+      const activeEvents: string[] = [];
+      if (evt4Raw === "1") activeEvents.push("evt4");
+      if (msg.evt34) activeEvents.push("evt34");
+      if (msg.evt35) activeEvents.push("evt35");
+      // Checar eventos de segurança
+      const evt16Raw = parseXmlValue(msgXml, "evt16");
+      const evt105Raw = parseXmlValue(msgXml, "evt105");
+      const evt109Raw = parseXmlValue(msgXml, "evt109");
+      if (evt16Raw === "1") activeEvents.push("evt16");
+      if (evt105Raw === "1") activeEvents.push("evt105");
+      if (evt109Raw === "1") activeEvents.push("evt109");
+
       const telemetryUpsertPayload = {
         vehicle_id: vehicle.id,
         vehicle_plate: vehiclePlate,
@@ -796,6 +809,9 @@ Deno.serve(async (req) => {
         heading: msg.direcao,
         ignition_on: msg.ignicao,
         odometer: msg.odometro,
+        fuel_level: msg.lt || null,
+        rpm: msg.rpm || null,
+        events: activeEvents,
         gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
         received_at: new Date(),
         // Salva o mId individual (quando existir) ou o maior mId do lote
