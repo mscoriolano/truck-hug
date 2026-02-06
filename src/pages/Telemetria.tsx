@@ -58,6 +58,7 @@ const Telemetria = () => {
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
+  const [dashboardFilter, setDashboardFilter] = useState<string | null>(null);
   
   // Estado para configurações
   const [speedLimitUrban, setSpeedLimitUrban] = useState(settings?.speed_limit_urban?.toString() || '60');
@@ -68,9 +69,30 @@ const Telemetria = () => {
   const [hardAccelThreshold, setHardAccelThreshold] = useState(settings?.hard_accel_threshold?.toString() || '0.4');
   const [expectedConsumption, setExpectedConsumption] = useState(settings?.expected_consumption?.toString() || '3.5');
 
-  const activeVehicles = telemetry?.filter(t => t.ignition_on).length || 0;
-  const movingVehicles = telemetry?.filter(t => t.speed > 0).length || 0;
+  // Contagens corrigidas: ignição via vel > 0 || ignition_on
+  const ignitionOn = telemetry?.filter(t => t.ignition_on || t.speed > 0).length || 0;
+  const movingVehicles = telemetry?.filter(t => t.speed > 0 && t.ignition_on).length || 0;
+  const idleVehicles = telemetry?.filter(t => t.speed === 0 && (t.ignition_on || false)).length || 0;
   const recentAlerts = alerts?.slice(0, 10) || [];
+
+  // Filtrar telemetria pelos cards clicáveis
+  const filteredTelemetry = dashboardFilter
+    ? telemetry?.filter(t => {
+        switch (dashboardFilter) {
+          case 'all': return true;
+          case 'ignition': return t.ignition_on || t.speed > 0;
+          case 'moving': return t.speed > 0;
+          case 'idle': return t.speed === 0 && t.ignition_on;
+          case 'off': return !t.ignition_on && t.speed === 0;
+          case 'alerts': return true; // alerts are separate
+          default: return true;
+        }
+      })
+    : telemetry;
+
+  const toggleFilter = (filter: string) => {
+    setDashboardFilter(prev => prev === filter ? null : filter);
+  };
 
   // Dados do veículo selecionado
   const selectedTelemetry = telemetry?.find(t => t.vehicle_id === selectedVehicle);
