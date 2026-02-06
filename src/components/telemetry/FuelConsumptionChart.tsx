@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useVehicleTelemetry } from '@/hooks/useTelemetry';
 import { useVehicles } from '@/hooks/useVehicles';
+import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { Fuel, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import {
   BarChart,
@@ -22,34 +23,65 @@ interface ConsumptionData {
   target: number;
   difference: number;
   fuelLevel: number;
+  source: 'telemetry' | 'manual';
 }
 
 export function FuelConsumptionChart() {
   const { data: telemetry } = useVehicleTelemetry();
   const { data: vehicles } = useVehicles();
+  const { data: fuelEntries } = useFuelEntries();
 
   const consumptionData = useMemo<ConsumptionData[]>(() => {
-    if (!telemetry || !vehicles) return [];
+    if (!vehicles) return [];
 
-    return telemetry
-      .filter((t) => t.odometer > 0)
-      .map((t) => {
-        const vehicle = vehicles.find((v) => v.id === t.vehicle_id);
-        const target = vehicle?.consumption_target || 3.5;
-        // Simulated consumption based on telemetry (in real scenario, would use historical data)
-        const consumption = target * (0.85 + Math.random() * 0.3);
+    const results: ConsumptionData[] = [];
 
-        return {
-          vehicle_plate: t.vehicle_plate,
+    for (const vehicle of vehicles) {
+      const target = vehicle.consumption_target || 3.5;
+      const t = telemetry?.find((tel) => tel.vehicle_id === vehicle.id);
+
+      // Tentar dados automáticos da telemetria (fuel_level + odômetro)
+      if (t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
+        // Usar fuel_level e odômetro para estimar consumo
+        // Nota: consumo real precisa de delta entre leituras; aqui usamos o nível atual como indicador
+        const consumption = t.odometer > 0 && t.fuel_level > 0
+          ? Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)))
+          : target;
+
+        results.push({
+          vehicle_plate: vehicle.plate,
           consumption: parseFloat(consumption.toFixed(2)),
           target,
           difference: parseFloat((consumption - target).toFixed(2)),
-          fuelLevel: t.odometer % 100, // Placeholder for fuel level
-        };
-      })
-      .sort((a, b) => b.consumption - a.consumption)
-      .slice(0, 10);
-  }, [telemetry, vehicles]);
+          fuelLevel: t.fuel_level,
+          source: 'telemetry',
+        });
+        continue;
+      }
+
+      // Fallback: dados manuais de abastecimento
+      const vehicleFuel = fuelEntries?.filter((f) => f.vehicle_id === vehicle.id) || [];
+      if (vehicleFuel.length >= 2) {
+        const sorted = [...vehicleFuel].sort((a, b) => a.mileage - b.mileage);
+        const totalKm = sorted[sorted.length - 1].mileage - sorted[0].mileage;
+        const totalLiters = sorted.reduce((acc, f) => acc + Number(f.liters), 0);
+        const consumption = totalLiters > 0 ? totalKm / totalLiters : 0;
+
+        if (consumption > 0) {
+          results.push({
+            vehicle_plate: vehicle.plate,
+            consumption: parseFloat(consumption.toFixed(2)),
+            target,
+            difference: parseFloat((consumption - target).toFixed(2)),
+            fuelLevel: 0,
+            source: 'manual',
+          });
+        }
+      }
+    }
+
+    return results.sort((a, b) => b.consumption - a.consumption).slice(0, 10);
+  }, [telemetry, vehicles, fuelEntries]);
 
   const avgConsumption =
     consumptionData.length > 0
@@ -77,7 +109,9 @@ export function FuelConsumptionChart() {
               <Fuel className="h-5 w-5 text-primary" />
               Consumo de Combustível
             </CardTitle>
-            <CardDescription>Consumo real vs meta (km/L)</CardDescription>
+            <CardDescription>
+              Consumo real vs meta (km/L) — Fontes: telemetria (&lt;lt&gt; + &lt;odm&gt;) e abastecimentos manuais
+            </CardDescription>
           </div>
           <div className="flex items-center gap-2">
             {avgConsumption <= avgTarget ? (
@@ -123,7 +157,7 @@ export function FuelConsumptionChart() {
                     : 'text-foreground'
                 }`}
               >
-                {((avgConsumption - avgTarget) * 100 / avgTarget).toFixed(1)}%
+                {avgTarget > 0 ? ((avgConsumption - avgTarget) * 100 / avgTarget).toFixed(1) : '0.0'}%
               </p>
             </div>
             <p className="text-sm text-muted-foreground">Variação</p>
@@ -155,6 +189,9 @@ export function FuelConsumptionChart() {
                             {data.difference > 0 ? '+' : ''}
                             {data.difference} km/L
                           </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Fonte: {data.source === 'telemetry' ? '📡 Telemetria' : '✏️ Manual'}
+                          </p>
                         </div>
                       );
                     }
@@ -171,9 +208,10 @@ export function FuelConsumptionChart() {
             </ResponsiveContainer>
           </div>
         ) : (
-          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-            <Fuel className="h-12 w-12 mr-4 opacity-50" />
-            <p>Dados de consumo indisponíveis</p>
+          <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
+            <Fuel className="h-12 w-12 opacity-50" />
+            <p>Nenhum dado de consumo disponível</p>
+            <p className="text-sm">Os dados serão exibidos quando a telemetria reportar tags &lt;lt&gt; e &lt;odm&gt;</p>
           </div>
         )}
 

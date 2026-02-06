@@ -77,8 +77,11 @@ export function VehicleMap({ className, showControls = true, selectedVehicleId, 
   const [mapCenter, setMapCenter] = useState<[number, number]>([-19.9167, -43.9345]); // Belo Horizonte
   const [mapZoom, setMapZoom] = useState(10);
 
+  // Use filtered data if provided, otherwise full telemetry
+  const sourceData = filterData || telemetryData;
+
   // Filtrar veículos com coordenadas válidas
-  const vehiclesWithLocation = telemetryData?.filter(
+  const vehiclesWithLocation = sourceData?.filter(
     (t) => t.latitude && t.longitude && t.latitude !== 0 && t.longitude !== 0
   ) || [];
 

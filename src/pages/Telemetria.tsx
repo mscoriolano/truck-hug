@@ -379,12 +379,13 @@ const Telemetria = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {telemetry?.map((t) => (
+                  {(filteredTelemetry || telemetry)?.map((t) => (
                     <div 
                       key={t.id} 
-                      className={`flex items-center justify-between p-3 rounded-lg bg-muted/30 cursor-pointer transition-colors ${
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-lg bg-muted/30 cursor-pointer transition-colors",
                         selectedVehicle === t.vehicle_id ? 'ring-2 ring-primary' : 'hover:bg-muted/50'
-                      }`}
+                      )}
                       onClick={() => setSelectedVehicle(t.vehicle_id)}
                     >
                       <div className="flex items-center gap-3">
@@ -392,12 +393,18 @@ const Telemetria = () => {
                         <div>
                           <p className="font-medium">{t.vehicle_plate}</p>
                           <p className="text-sm text-muted-foreground">
-                            {t.ignition_on ? 'Ignição ligada' : 'Ignição desligada'}
+                            {t.speed > 0 ? 'Em movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
                           </p>
                         </div>
                       </div>
-                      <Badge variant={t.speed > 0 ? "default" : t.ignition_on ? "secondary" : "outline"}>
-                        {t.speed > 0 ? 'Movimento' : t.ignition_on ? 'Parado' : 'Desligado'}
+                      <Badge 
+                        variant={t.speed > 0 ? "default" : t.ignition_on ? "secondary" : "outline"}
+                        className={cn(
+                          t.speed > 0 && "bg-success text-success-foreground",
+                          t.speed === 0 && t.ignition_on && "bg-amber-500 text-white",
+                        )}
+                      >
+                        {t.speed > 0 ? 'Movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
                       </Badge>
                     </div>
                   ))}
