@@ -449,24 +449,46 @@ Deno.serve(async (req) => {
     console.log(xmlRequestMasked);
     console.log("[truckscontrol-telemetry] endpoint:", webserviceUrl);
 
-    const controller = new AbortController();
-    const timeoutMs = 90_000; // 90 segundos para evitar timeout da API TrucksControl
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutMs = 28_000; // limite efetivo observado no ambiente (~30s). Mantemos abaixo disso.
+
+    const headers = {
+      "Content-Type": "text/xml",
+      "User-Agent": "Mozilla/5.0",
+      // evita negociação de compressão que às vezes aumenta latência/handshake
+      "Accept": "text/xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Encoding": "identity",
+      "Connection": "close",
+    };
+
+    async function postXmlOnce(): Promise<Response> {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(webserviceUrl, {
+          method: "POST",
+          headers,
+          body: xmlRequest,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
 
     let response: Response;
     try {
-      // Envia como string bruta (naked XML) no corpo do POST
-      response = await fetch(webserviceUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/xml",
-          "User-Agent": "Mozilla/5.0",
-        },
-        body: xmlRequest,
-        signal: controller.signal,
-      });
-    } catch (fetchError: unknown) {
-      clearTimeout(timeout);
+      response = await postXmlOnce();
+    } catch (e) {
+      // Retry 1x em abort/timeout: a API do fornecedor oscila.
+      const msg = String(e);
+      const isAbort = /abort/i.test(msg);
+      if (isAbort) {
+        console.warn("[truckscontrol-telemetry] first attempt timed out; retrying once...");
+        response = await postXmlOnce();
+      } else {
+        throw e;
+      }
+    }
       const errMsg = String(fetchError);
       const isFailedToFetch = fetchError instanceof TypeError && /failed to fetch/i.test(errMsg);
       const isConnectionError = /connection refused|ECONNREFUSED/i.test(errMsg);
@@ -586,10 +608,11 @@ Deno.serve(async (req) => {
     // ==========================================
     function parseCoordinate(value: string | null): number {
       if (!value) return 0;
-      // Substitui vírgula por ponto para garantir parse correto
-      const normalized = value.replace(',', '.');
+      // CRÍTICO: TrucksControl pode retornar vírgula como separador decimal.
+      // Força normalização ANTES de qualquer conversão numérica.
+      const normalized = value.trim().replace(/,/g, ".");
       const parsed = parseFloat(normalized);
-      return isNaN(parsed) ? 0 : parsed;
+      return Number.isFinite(parsed) ? parsed : 0;
     }
 
     // Parsear mensagens de telemetria
@@ -760,24 +783,47 @@ Deno.serve(async (req) => {
       // ==========================================
       // PASSO 4: Salvar telemetria COM o last_mld
       // ==========================================
+      const telemetryUpsertPayload = {
+        vehicle_id: vehicle.id,
+        vehicle_plate: vehiclePlate,
+        truckscontrol_id: msg.veiID,
+        latitude: msg.latitude,
+        longitude: msg.longitude,
+        speed: msg.velocidade,
+        heading: msg.direcao,
+        ignition_on: msg.ignicao,
+        odometer: msg.odometro,
+        gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
+        received_at: new Date(),
+        // Salva o mId individual (quando existir) ou o maior mId do lote
+        last_mld: msg.mld || maxMldReceived,
+      };
+
       const { error: telemetryError } = await supabase
         .from("vehicle_telemetry")
-        .upsert({
-          vehicle_id: vehicle.id,
-          vehicle_plate: vehiclePlate,
-          truckscontrol_id: msg.veiID,
-          latitude: msg.latitude,
-          longitude: msg.longitude,
-          speed: msg.velocidade,
-          heading: msg.direcao,
-          ignition_on: msg.ignicao,
-          odometer: msg.odometro,
-          gps_timestamp: msg.dataHora ? new Date(msg.dataHora) : new Date(),
-          received_at: new Date(),
-          last_mld: msg.mld || maxMldReceived, // Salva o mld da mensagem ou o maior recebido
-        }, {
+        .upsert(telemetryUpsertPayload, {
           onConflict: "vehicle_id",
         });
+
+      if (telemetryError) {
+        // LOG DETALHADO para identificar campo que falhou no banco
+        console.error("[truckscontrol-telemetry] DB upsert failed: vehicle_telemetry", {
+          error: telemetryError,
+          payload: telemetryUpsertPayload,
+          source: {
+            veiID: msg.veiID,
+            placa: msg.placa,
+            dt: msg.dataHora,
+            odm: msg.odometro,
+            lat: msg.latitude,
+            lon: msg.longitude,
+            tpMsg: msg.tpMsg,
+            tfrID: msg.tfrID,
+            mId: msg.mld,
+          },
+        });
+        continue;
+      }
 
       if (!telemetryError) {
         telemetryUpdated++;
