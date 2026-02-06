@@ -713,9 +713,13 @@ Deno.serve(async (req) => {
         tfrID: tfrID || undefined,
         rpm: rpm || undefined,
         lt: lt || undefined,
+        evt4: evt4Raw === "1" || evt4Raw === "true",
         evt34: evt34Raw === "1" || evt34Raw === "true",
         evt35: evt35Raw === "1" || evt35Raw === "true",
-        mld: mId || undefined, // mId extraído da resposta, salvo no campo mld do objeto
+        evt16: evt16Raw === "1" || evt16Raw === "true",
+        evt105: evt105Raw === "1" || evt105Raw === "true",
+        evt109: evt109Raw === "1" || evt109Raw === "true",
+        mld: mId || undefined,
       };
 
       if (msg.placa || msg.veiID) {
