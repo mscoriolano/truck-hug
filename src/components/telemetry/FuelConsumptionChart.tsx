@@ -34,9 +34,11 @@ export function FuelConsumptionChart() {
   const consumptionData = useMemo<ConsumptionData[]>(() => {
     if (!vehicles) return [];
 
+    // Show ALL active vehicles — never hide any from the chart
+    const activeVehicles = vehicles.filter((v) => v.status === 'active');
     const results: ConsumptionData[] = [];
 
-    for (const vehicle of vehicles) {
+    for (const vehicle of activeVehicles) {
       const target = vehicle.consumption_target || 3.5;
       const t = telemetry?.find((tel) => tel.vehicle_id === vehicle.id);
 
@@ -44,61 +46,46 @@ export function FuelConsumptionChart() {
       const vehicleFuel = (fuelEntries?.filter((f) => f.vehicle_id === vehicle.id) || [])
         .sort((a, b) => a.mileage - b.mileage);
 
+      let consumption = 0;
+      let source: 'telemetry' | 'manual' = 'manual';
+
       // Method 1: Multiple manual entries — most reliable
       if (vehicleFuel.length >= 2) {
         const totalKm = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
         const totalLiters = vehicleFuel.reduce((acc, f) => acc + Number(f.liters), 0);
-        const consumption = totalLiters > 0 ? totalKm / totalLiters : 0;
-
-        if (consumption > 0) {
-          results.push({
-            vehicle_plate: vehicle.plate,
-            consumption: parseFloat(consumption.toFixed(2)),
-            target,
-            difference: parseFloat((consumption - target).toFixed(2)),
-            fuelLevel: t?.fuel_level || 0,
-            source: 'manual',
-          });
-          continue;
+        if (totalLiters > 0 && totalKm > 0) {
+          consumption = totalKm / totalLiters;
         }
       }
 
       // Method 2: Single fuel entry + current telemetry odometer
-      if (vehicleFuel.length === 1 && t && t.odometer > 0) {
+      if (consumption === 0 && vehicleFuel.length === 1 && t && t.odometer > 0) {
         const entry = vehicleFuel[0];
         const km = Math.abs(t.odometer - entry.mileage);
         const liters = Number(entry.liters);
         if (km > 10 && liters > 0) {
-          const consumption = km / liters;
-          if (consumption > 0.1) {
-            results.push({
-              vehicle_plate: vehicle.plate,
-              consumption: parseFloat(consumption.toFixed(2)),
-              target,
-              difference: parseFloat((consumption - target).toFixed(2)),
-              fuelLevel: t?.fuel_level || 0,
-              source: 'manual',
-            });
-            continue;
-          }
+          consumption = km / liters;
         }
       }
 
-      // Method 3: Telemetry fuel_level + odometer (if available)
-      if (t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
-        const consumption = Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)));
-        results.push({
-          vehicle_plate: vehicle.plate,
-          consumption: parseFloat(consumption.toFixed(2)),
-          target,
-          difference: parseFloat((consumption - target).toFixed(2)),
-          fuelLevel: t.fuel_level,
-          source: 'telemetry',
-        });
+      // Method 3: Telemetry fuel_level + odometer
+      if (consumption === 0 && t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
+        consumption = Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)));
+        source = 'telemetry';
       }
+
+      // ALWAYS push the vehicle — even if consumption is 0
+      results.push({
+        vehicle_plate: vehicle.plate,
+        consumption: parseFloat(consumption.toFixed(2)),
+        target,
+        difference: parseFloat((consumption - target).toFixed(2)),
+        fuelLevel: t?.fuel_level || 0,
+        source,
+      });
     }
 
-    return results.sort((a, b) => b.consumption - a.consumption).slice(0, 10);
+    return results.sort((a, b) => b.consumption - a.consumption);
   }, [telemetry, vehicles, fuelEntries]);
 
   const avgConsumption =
