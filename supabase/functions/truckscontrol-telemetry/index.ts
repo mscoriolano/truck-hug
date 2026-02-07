@@ -529,7 +529,7 @@ Deno.serve(async (req) => {
         );
       }
     }
-    clearTimeout(timeout);
+    // timeout is handled inside postXmlOnce
 
     responseStatus = response.status;
     responseContentType = response.headers.get("content-type");
