@@ -208,7 +208,7 @@ export function VehicleMap({ className, showControls = true, selectedVehicleId, 
 
                 return (
                   <Marker
-                    key={telemetry.id}
+                    key={`${telemetry.id}-${telemetry.speed}-${telemetry.ignition_on}-${telemetry.received_at}`}
                     position={[telemetry.latitude!, telemetry.longitude!]}
                     icon={createVehicleIcon(telemetry.speed, telemetry.ignition_on)}
                   >

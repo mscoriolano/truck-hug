@@ -99,6 +99,7 @@ export function FuelConsumptionChart() {
       : 3.5;
 
   const getBarColor = (consumption: number, target: number) => {
+    if (consumption === 0) return 'hsl(var(--muted-foreground))';
     const ratio = consumption / target;
     if (ratio <= 0.95) return 'hsl(var(--success))';
     if (ratio <= 1.05) return 'hsl(var(--warning))';
@@ -184,19 +185,29 @@ export function FuelConsumptionChart() {
                       return (
                         <div className="rounded-lg bg-background border p-3 shadow-lg">
                           <p className="font-bold">{data.vehicle_plate}</p>
-                          <p className="text-sm">Consumo: {data.consumption} km/L</p>
-                          <p className="text-sm">Meta: {data.target} km/L</p>
-                          <p
-                            className={`text-sm font-medium ${
-                              data.difference > 0 ? 'text-destructive' : 'text-success'
-                            }`}
-                          >
-                            {data.difference > 0 ? '+' : ''}
-                            {data.difference} km/L
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Fonte: {data.source === 'telemetry' ? '📡 Telemetria' : '✏️ Manual'}
-                          </p>
+                          {data.consumption === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              Sem dados de abastecimento registrados.
+                              <br />
+                              Cadastre abastecimentos em "Abastecimentos".
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-sm">Consumo: {data.consumption} km/L</p>
+                              <p className="text-sm">Meta: {data.target} km/L</p>
+                              <p
+                                className={`text-sm font-medium ${
+                                  data.difference > 0 ? 'text-destructive' : 'text-success'
+                                }`}
+                              >
+                                {data.difference > 0 ? '+' : ''}
+                                {data.difference} km/L
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Fonte: {data.source === 'telemetry' ? '📡 Telemetria' : '✏️ Manual'}
+                              </p>
+                            </>
+                          )}
                         </div>
                       );
                     }
