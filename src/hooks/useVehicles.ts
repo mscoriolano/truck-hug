@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 export interface Vehicle {
   id: string;
   plate: string;
+  license_plate?: string; // Adicionado para compatibilidade com o Mapa
   model: string;
   brand: string;
   year: number;
@@ -39,7 +40,17 @@ export const useVehicles = () => {
         .order('plate');
       
       if (error) throw error;
-      return data as Vehicle[];
+
+      // --- TRUQUE DE COMPATIBILIDADE ---
+      // Mapeamos os dados para garantir que o Mapa receba o que espera
+      return data.map((v: any) => ({
+        ...v,
+        // O Mapa busca 'license_plate', mas o banco devolve 'plate'. Criamos o alias:
+        license_plate: v.plate, 
+        // Garantimos que nunca vá vazio para não dar "Não Especificado" sem querer
+        model: v.model || 'Modelo N/I',
+        brand: v.brand || 'Marca N/I'
+      })) as Vehicle[];
     },
   });
 };

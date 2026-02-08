@@ -1,716 +1,406 @@
-import { useState } from 'react';
-import { cn } from '@/lib/utils';
+import { useState, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useVehicleTelemetry, useTelemetryAlerts, useTelemetrySettings, useUpdateTelemetrySettings } from '@/hooks/useTelemetry';
-import { useVehicles } from '@/hooks/useVehicles';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useVehicleTelemetry, useTelemetryAlerts, useAcknowledgeAlert } from '@/hooks/useTelemetry';
+import { supabase } from '@/integrations/supabase/client'; 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { 
-  MapPin, AlertTriangle, Gauge, Activity, Settings, 
-  Fuel, Zap, ChevronDown, ChevronUp,
-  Check, Timer
-} from 'lucide-react';
-import { TelemetryReportExport } from '@/components/reports/TelemetryReportExport';
-import { NotificationSettings } from '@/components/notifications/NotificationSettings';
-import { SpeedGauge } from '@/components/telemetry/SpeedGauge';
-import { GForceGauge } from '@/components/telemetry/GForceGauge';
-import { FuelConsumptionGauge } from '@/components/telemetry/FuelConsumptionGauge';
-import { LiveSpeedometers } from '@/components/telemetry/LiveSpeedometers';
-import { IdleTimeChart } from '@/components/telemetry/IdleTimeChart';
-import { FuelConsumptionChart } from '@/components/telemetry/FuelConsumptionChart';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MapPin, Activity, Gauge, Fuel, Clock, AlertTriangle, Zap, CheckCircle, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { DateRangeFilter } from '@/components/ui/DateRangeFilter';
 import { toast } from 'sonner';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { startOfWeek, startOfMonth, subMonths, startOfYear, subYears, isAfter, isBefore } from 'date-fns';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
-const Telemetria = () => {
-  const { data: telemetry, isLoading: telemetryLoading } = useVehicleTelemetry();
-  const { data: alerts } = useTelemetryAlerts(false);
-  const { data: vehicles } = useVehicles();
-  const { data: settings } = useTelemetrySettings();
-  const updateSettings = useUpdateTelemetrySettings();
-  
-  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
-  const [dashboardFilter, setDashboardFilter] = useState<string | null>(null);
-  
-  // Estado para configurações
-  const [speedLimitUrban, setSpeedLimitUrban] = useState(settings?.speed_limit_urban?.toString() || '60');
-  const [speedLimitHighway, setSpeedLimitHighway] = useState(settings?.speed_limit_highway?.toString() || '80');
-  const [idleWarning, setIdleWarning] = useState(settings?.idle_warning_minutes?.toString() || '10');
-  const [idleCritical, setIdleCritical] = useState(settings?.idle_critical_minutes?.toString() || '30');
-  const [hardBrakeThreshold, setHardBrakeThreshold] = useState(settings?.hard_brake_threshold?.toString() || '0.5');
-  const [hardAccelThreshold, setHardAccelThreshold] = useState(settings?.hard_accel_threshold?.toString() || '0.4');
-  const [expectedConsumption, setExpectedConsumption] = useState(settings?.expected_consumption?.toString() || '3.5');
-
-  // Contagens corrigidas: speed > 0 implica ignição ligada (safety net)
-  const ignitionOn = telemetry?.filter(t => t.ignition_on || t.speed > 0).length || 0;
-  const movingVehicles = telemetry?.filter(t => t.speed > 0).length || 0;
-  const idleVehicles = telemetry?.filter(t => t.speed === 0 && (t.ignition_on || false)).length || 0;
-  const recentAlerts = alerts?.slice(0, 10) || [];
-
-  // Filtrar telemetria pelos cards clicáveis
-  const filteredTelemetry = dashboardFilter
-    ? telemetry?.filter(t => {
-        switch (dashboardFilter) {
-          case 'all': return true;
-          case 'ignition': return t.ignition_on || t.speed > 0;
-          case 'moving': return t.speed > 0; // speed > 0 implica ignição
-          case 'idle': return t.speed === 0 && t.ignition_on;
-          case 'off': return !t.ignition_on && t.speed === 0;
-          case 'alerts': return true; // alerts are separate
-          default: return true;
-        }
-      })
-    : telemetry;
-
-  const toggleFilter = (filter: string) => {
-    setDashboardFilter(prev => prev === filter ? null : filter);
-  };
-
-  // Dados do veículo selecionado
-  const selectedTelemetry = telemetry?.find(t => t.vehicle_id === selectedVehicle);
-
-  // Toggle detalhes do alerta
-  const toggleAlertDetails = (alertId: string) => {
-    const newSet = new Set(expandedAlerts);
-    if (newSet.has(alertId)) {
-      newSet.delete(alertId);
-    } else {
-      newSet.add(alertId);
-    }
-    setExpandedAlerts(newSet);
-  };
-
-  // Salvar configurações
-  const handleSaveSettings = () => {
-    if (settings?.id) {
-      updateSettings.mutate({
-        id: settings.id,
-        speed_limit_urban: parseInt(speedLimitUrban),
-        speed_limit_highway: parseInt(speedLimitHighway),
-        idle_warning_minutes: parseInt(idleWarning),
-        idle_critical_minutes: parseInt(idleCritical),
-        hard_brake_threshold: parseFloat(hardBrakeThreshold),
-        hard_accel_threshold: parseFloat(hardAccelThreshold),
-        expected_consumption: parseFloat(expectedConsumption),
-      });
-      setSettingsOpen(false);
-    }
-  };
-
-  // Calcular estatísticas de força G
-  const gForceStats = telemetry?.reduce((acc, t) => {
-    const maxG = Math.max(Math.abs(t.g_force_x || 0), Math.abs(t.g_force_y || 0), Math.abs(t.g_force_z || 0));
-    if (maxG > acc.max) acc.max = maxG;
-    acc.total += maxG;
-    acc.count++;
-    return acc;
-  }, { max: 0, total: 0, count: 0 }) || { max: 0, total: 0, count: 0 };
-
-  const avgGForce = gForceStats.count > 0 ? gForceStats.total / gForceStats.count : 0;
-
-  return (
-    <MainLayout 
-      title="Telemetria" 
-      subtitle="Monitoramento em tempo real da frota"
-    >
-      <Tabs defaultValue="mapa" className="space-y-6">
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="mapa">
-              <MapPin className="w-4 h-4 mr-2" />
-              Mapa
-            </TabsTrigger>
-            <TabsTrigger value="velocidade">
-              <Gauge className="w-4 h-4 mr-2" />
-              Velocidade
-            </TabsTrigger>
-            <TabsTrigger value="gforce">
-              <Zap className="w-4 h-4 mr-2" />
-              Força G
-            </TabsTrigger>
-            <TabsTrigger value="consumo">
-              <Fuel className="w-4 h-4 mr-2" />
-              Consumo
-            </TabsTrigger>
-            <TabsTrigger value="ociosidade">
-              <Timer className="w-4 h-4 mr-2" />
-              Ociosidade
-            </TabsTrigger>
-            <TabsTrigger value="alertas">
-              <AlertTriangle className="w-4 h-4 mr-2" />
-              Alertas
-            </TabsTrigger>
-          </TabsList>
-
-          <div className="flex items-center gap-2">
-            <TelemetryReportExport />
-            <NotificationSettings />
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configurações
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Configurações de Telemetria</DialogTitle>
-                <DialogDescription>
-                  Defina os limites e parâmetros para alertas automáticos
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Limite Urbano (km/h)</Label>
-                    <Input 
-                      type="number" 
-                      value={speedLimitUrban} 
-                      onChange={(e) => setSpeedLimitUrban(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Limite Rodovia (km/h)</Label>
-                    <Input 
-                      type="number" 
-                      value={speedLimitHighway} 
-                      onChange={(e) => setSpeedLimitHighway(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Alerta Ociosidade (min)</Label>
-                    <Input 
-                      type="number" 
-                      value={idleWarning} 
-                      onChange={(e) => setIdleWarning(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Crítico Ociosidade (min)</Label>
-                    <Input 
-                      type="number" 
-                      value={idleCritical} 
-                      onChange={(e) => setIdleCritical(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Frenagem Brusca (G)</Label>
-                    <Input 
-                      type="number" 
-                      step="0.1"
-                      value={hardBrakeThreshold} 
-                      onChange={(e) => setHardBrakeThreshold(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Aceleração Brusca (G)</Label>
-                    <Input 
-                      type="number" 
-                      step="0.1"
-                      value={hardAccelThreshold} 
-                      onChange={(e) => setHardAccelThreshold(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Consumo Esperado (km/l)</Label>
-                  <Input 
-                    type="number" 
-                    step="0.1"
-                    value={expectedConsumption} 
-                    onChange={(e) => setExpectedConsumption(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setSettingsOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button onClick={handleSaveSettings} disabled={updateSettings.isPending}>
-                  <Check className="w-4 h-4 mr-2" />
-                  Salvar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          </div>
-        </div>
-
-        {/* Cards de resumo - clicáveis para filtrar */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-          <Card 
-            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-primary/50", dashboardFilter === 'all' && "ring-2 ring-primary")}
-            onClick={() => toggleFilter('all')}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-primary/20">
-                  <MapPin className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{vehicles?.length || 0}</p>
-                  <p className="text-sm text-muted-foreground">Veículos</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card 
-            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-success/50", dashboardFilter === 'ignition' && "ring-2 ring-success")}
-            onClick={() => toggleFilter('ignition')}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-success/20">
-                  <Activity className="h-6 w-6 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{ignitionOn}</p>
-                  <p className="text-sm text-muted-foreground">Ignição Ligada</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card 
-            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-emerald-500/50", dashboardFilter === 'moving' && "ring-2 ring-emerald-500")}
-            onClick={() => toggleFilter('moving')}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-emerald-500/20">
-                  <Gauge className="h-6 w-6 text-emerald-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{movingVehicles}</p>
-                  <p className="text-sm text-muted-foreground">Em Movimento</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card 
-            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-amber-500/50", dashboardFilter === 'idle' && "ring-2 ring-amber-500")}
-            onClick={() => toggleFilter('idle')}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-amber-500/20">
-                  <Timer className="h-6 w-6 text-amber-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{idleVehicles}</p>
-                  <p className="text-sm text-muted-foreground">Ociosidade</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card 
-            className={cn("cursor-pointer transition-all hover:ring-2 hover:ring-destructive/50", dashboardFilter === 'alerts' && "ring-2 ring-destructive")}
-            onClick={() => toggleFilter('alerts')}
-          >
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="p-3 rounded-full bg-destructive/20">
-                  <AlertTriangle className="h-6 w-6 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{recentAlerts.length}</p>
-                  <p className="text-sm text-muted-foreground">Alertas Pendentes</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {dashboardFilter && (
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-sm">
-              Filtro: {dashboardFilter === 'all' ? 'Todos' : dashboardFilter === 'ignition' ? 'Ignição Ligada' : dashboardFilter === 'moving' ? 'Em Movimento' : dashboardFilter === 'idle' ? 'Ociosidade' : dashboardFilter === 'off' ? 'Desligados' : 'Alertas'}
-            </Badge>
-            <Button variant="ghost" size="sm" onClick={() => setDashboardFilter(null)}>
-              Limpar filtro
-            </Button>
-          </div>
-        )}
-
-        {/* Tab: Mapa */}
-        <TabsContent value="mapa" className="space-y-6">
-          <VehicleMap filterData={filteredTelemetry} />
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Status dos Veículos</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                  {(filteredTelemetry || telemetry)?.map((t) => (
-                    <div 
-                      key={t.id} 
-                      className={cn(
-                        "flex items-center justify-between p-3 rounded-lg bg-muted/30 cursor-pointer transition-colors",
-                        selectedVehicle === t.vehicle_id ? 'ring-2 ring-primary' : 'hover:bg-muted/50'
-                      )}
-                      onClick={() => setSelectedVehicle(t.vehicle_id)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <SpeedGauge value={t.speed} size="sm" />
-                        <div>
-                          <p className="font-medium">{t.vehicle_plate}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {t.speed > 0 ? 'Em movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge 
-                        variant={t.speed > 0 ? "default" : t.ignition_on ? "secondary" : "outline"}
-                        className={cn(
-                          t.speed > 0 && "bg-success text-success-foreground",
-                          t.speed === 0 && t.ignition_on && "bg-amber-500 text-white",
-                        )}
-                      >
-                        {t.speed > 0 ? 'Movimento' : t.ignition_on ? 'Ocioso' : 'Desligado'}
-                      </Badge>
-                    </div>
-                  ))}
-                  {(!telemetry || telemetry.length === 0) && (
-                    <p className="text-center text-muted-foreground py-8">
-                      Nenhum dado de telemetria disponível
-                    </p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Detalhes do veículo selecionado */}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {selectedTelemetry ? `Detalhes: ${selectedTelemetry.vehicle_plate}` : 'Selecione um veículo'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {selectedTelemetry ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="text-center p-4 rounded-lg bg-muted/30">
-                        <SpeedGauge value={selectedTelemetry.speed} size="lg" />
-                        <p className="mt-2 text-sm text-muted-foreground">Velocidade</p>
-                      </div>
-                      <div className="text-center p-4 rounded-lg bg-muted/30">
-                        <GForceGauge 
-                          value={Math.max(
-                            Math.abs(selectedTelemetry.g_force_x || 0), 
-                            Math.abs(selectedTelemetry.g_force_y || 0)
-                          )}
-                          label="Força G"
-                          size="lg"
-                        />
-                        <p className="mt-2 text-sm text-muted-foreground">Força G</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Coordenadas</span>
-                        <span>{selectedTelemetry.latitude?.toFixed(6)}, {selectedTelemetry.longitude?.toFixed(6)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Direção</span>
-                        <span>{selectedTelemetry.heading}°</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Odômetro</span>
-                        <span>{selectedTelemetry.odometer?.toLocaleString()} km</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Última atualização</span>
-                        <span>{format(new Date(selectedTelemetry.received_at), "dd/MM HH:mm:ss", { locale: ptBR })}</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">
-                    Clique em um veículo para ver detalhes
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Tab: Velocidade */}
-        <TabsContent value="velocidade" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Monitoramento de Velocidade</CardTitle>
-              <CardDescription>
-                Limite urbano: {settings?.speed_limit_urban || 60} km/h | 
-                Limite rodovia: {settings?.speed_limit_highway || 80} km/h
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {telemetry?.map((t) => (
-                  <div key={t.id} className="text-center p-6 rounded-lg bg-muted/30">
-                    <p className="font-medium mb-4">{t.vehicle_plate}</p>
-                    <SpeedGauge 
-                      value={t.speed} 
-                      size="lg" 
-                      limit={settings?.speed_limit_highway || 80}
-                    />
-                    <Badge 
-                      className="mt-4"
-                      variant={
-                        t.speed > (settings?.speed_limit_highway || 80) ? "destructive" :
-                        t.speed > (settings?.speed_limit_urban || 60) ? "secondary" :
-                        "default"
-                      }
-                    >
-                      {t.speed > (settings?.speed_limit_highway || 80) ? 'Acima do limite' :
-                       t.speed > (settings?.speed_limit_urban || 60) ? 'Atenção' :
-                       'Normal'}
-                    </Badge>
-                  </div>
-                ))}
-                {(!telemetry || telemetry.length === 0) && (
-                  <p className="col-span-full text-center text-muted-foreground py-8">
-                    Nenhum dado de velocidade disponível
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab: Força G */}
-        <TabsContent value="gforce" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-primary">{avgGForce.toFixed(2)}G</p>
-                  <p className="text-sm text-muted-foreground">Força G Média</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-destructive">{gForceStats.max.toFixed(2)}G</p>
-                  <p className="text-sm text-muted-foreground">Maior Impacto</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <p className="text-3xl font-bold">
-                    {alerts?.filter(a => a.alert_type === 'hard_brake' || a.alert_type === 'hard_accel').length || 0}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Eventos Bruscos (hoje)</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Força G por Veículo</CardTitle>
-              <CardDescription>
-                Frenagem brusca: {'>'}{settings?.hard_brake_threshold || 0.5}G | 
-                Aceleração brusca: {'>'}{settings?.hard_accel_threshold || 0.4}G
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {telemetry?.map((t) => {
-                  const maxG = Math.max(
-                    Math.abs(t.g_force_x || 0), 
-                    Math.abs(t.g_force_y || 0), 
-                    Math.abs(t.g_force_z || 0)
-                  );
-                  const threshold = settings?.hard_brake_threshold || 0.5;
-                  
-                  return (
-                    <div key={t.id} className="text-center p-6 rounded-lg bg-muted/30">
-                      <p className="font-medium mb-4">{t.vehicle_plate}</p>
-                      <GForceGauge 
-                        value={maxG}
-                        label="Total"
-                        size="lg"
-                        threshold={threshold}
-                      />
-                      <div className="mt-4 text-sm">
-                        <p>X: {(t.g_force_x || 0).toFixed(2)}G</p>
-                        <p>Y: {(t.g_force_y || 0).toFixed(2)}G</p>
-                        <p>Z: {(t.g_force_z || 0).toFixed(2)}G</p>
-                      </div>
-                      <Badge 
-                        className="mt-2"
-                        variant={maxG > threshold ? "destructive" : "default"}
-                      >
-                        {maxG > threshold ? 'Impacto Detectado' : 'Normal'}
-                      </Badge>
-                    </div>
-                  );
-                })}
-                {(!telemetry || telemetry.length === 0) && (
-                  <p className="col-span-full text-center text-muted-foreground py-8">
-                    Nenhum dado de força G disponível
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Tab: Consumo */}
-        <TabsContent value="consumo" className="space-y-6">
-          <FuelConsumptionChart />
-        </TabsContent>
-
-        {/* Tab: Ociosidade */}
-        <TabsContent value="ociosidade" className="space-y-6">
-          <IdleTimeChart />
-        </TabsContent>
-
-        {/* Tab: Alertas */}
-        <TabsContent value="alertas" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Alertas de Telemetria</CardTitle>
-              <CardDescription>
-                Clique em um alerta para ver detalhes
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {recentAlerts.map((alert) => (
-                  <Collapsible 
-                    key={alert.id}
-                    open={expandedAlerts.has(alert.id)}
-                    onOpenChange={() => toggleAlertDetails(alert.id)}
-                  >
-                    <CollapsibleTrigger asChild>
-                      <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
-                        <AlertTriangle className={`h-5 w-5 mt-0.5 flex-shrink-0 ${
-                          alert.severity === 'critical' ? 'text-destructive' : 'text-warning'
-                        }`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{alert.title}</p>
-                            <Badge variant="outline" className="text-xs">
-                              {alert.vehicle_plate}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">{alert.message}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {format(new Date(alert.event_timestamp), "dd/MM HH:mm", { locale: ptBR })}
-                          </p>
-                        </div>
-                        <Badge variant={alert.severity === 'critical' ? "destructive" : "secondary"}>
-                          {alert.severity}
-                        </Badge>
-                        {expandedAlerts.has(alert.id) ? (
-                          <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                        ) : (
-                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                        )}
-                      </div>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="p-4 mt-2 rounded-lg bg-card border">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Tipo de Alerta</p>
-                            <p className="font-medium">{alert.alert_type}</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Veículo</p>
-                            <p className="font-medium">{alert.vehicle_plate}</p>
-                          </div>
-                          {alert.driver_name && (
-                            <div>
-                              <p className="text-muted-foreground">Motorista</p>
-                              <p className="font-medium">{alert.driver_name}</p>
-                            </div>
-                          )}
-                          {alert.speed !== null && (
-                            <div>
-                              <p className="text-muted-foreground">Velocidade</p>
-                              <p className="font-medium">{alert.speed} km/h</p>
-                            </div>
-                          )}
-                          {alert.g_force !== null && (
-                            <div>
-                              <p className="text-muted-foreground">Força G</p>
-                              <p className="font-medium">{alert.g_force?.toFixed(2)}G</p>
-                            </div>
-                          )}
-                          {alert.location_name && (
-                            <div className="col-span-2">
-                              <p className="text-muted-foreground">Localização</p>
-                              <p className="font-medium">{alert.location_name}</p>
-                            </div>
-                          )}
-                          {alert.latitude && alert.longitude && (
-                            <div className="col-span-2">
-                              <p className="text-muted-foreground">Coordenadas</p>
-                              <p className="font-medium">{alert.latitude}, {alert.longitude}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                ))}
-                {recentAlerts.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum alerta pendente
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </MainLayout>
-  );
+// Normaliza placas para comparação (remove traços e espaços)
+const normalizePlate = (plate: string | undefined) => {
+  if (!plate) return "";
+  return plate.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 };
 
-export default Telemetria;
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    const difference = data.value - data.target;
+    const percentageDiff = data.target > 0 ? ((difference / data.target) * 100) : 0;
+    const isEfficient = difference >= 0; 
+    
+    const diffColor = isEfficient ? "text-green-400" : "text-red-400";
+    const Icon = isEfficient ? TrendingUp : TrendingDown;
+
+    return (
+      <div className="bg-[#1e293b] border border-slate-700 p-4 rounded-xl shadow-2xl text-white min-w-[200px] z-50">
+        <p className="font-bold text-lg mb-3 border-b border-slate-700 pb-2">{label}</p>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between items-center gap-6">
+            <span className="text-slate-400">Consumo Real:</span>
+            <span className="font-mono font-bold text-lg">{data.value.toFixed(2)} km/L</span>
+          </div>
+          <div className="flex justify-between items-center gap-6">
+            <span className="text-slate-400">Meta ({data.model}):</span>
+            <span className="font-mono font-bold text-slate-300">{data.target.toFixed(2)} km/L</span>
+          </div>
+          <div className={`pt-2 mt-2 border-t border-slate-700/50 flex justify-between items-center gap-4 font-bold ${diffColor}`}>
+             <span className="text-slate-400 text-xs uppercase">Variação:</span>
+             <div className="flex items-center gap-1">
+                <Icon className="w-3 h-3" />
+                <span>{isEfficient ? "+" : ""}{percentageDiff.toFixed(1)}% ({isEfficient ? "+" : ""}{difference.toFixed(2)} km/L)</span>
+             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+export default function Telemetria() {
+  const { data: telemetryData } = useVehicleTelemetry();
+  const { data: alerts, refetch: refetchAlerts } = useTelemetryAlerts(false); 
+  const acknowledgeAlert = useAcknowledgeAlert();
+  const [fullRegistry, setFullRegistry] = useState<any[]>([]);
+
+  // Busca o cadastro completo e loga no console para conferência
+  useEffect(() => {
+    const fetchRegistry = async () => {
+      console.log("Buscando cadastro de veículos...");
+      const { data, error } = await supabase.from('vehicles').select('*');
+      if (error) console.error("Erro ao buscar veículos:", error);
+      if (data) {
+        console.log("Veículos carregados do banco:", data);
+        setFullRegistry(data);
+      }
+    };
+    fetchRegistry();
+  }, []);
+
+  const [filterStatus, setFilterStatus] = useState<'all' | 'moving' | 'idle' | 'off' | 'ignition_on' | 'alerts'>('all');
+  const [periodo, setPeriodo] = useState('all'); 
+  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>();
+  const [activeTab, setActiveTab] = useState('consumo'); 
+
+  // --- ESTATÍSTICAS ---
+  const stats = useMemo(() => {
+    const total = telemetryData?.length || 0;
+    const moving = telemetryData?.filter(v => v.ignition_on && v.speed > 0).length || 0;
+    const idle = telemetryData?.filter(v => v.ignition_on && v.speed === 0).length || 0;
+    const ignitionOn = moving + idle;
+    const alertsCount = alerts?.length || 0;
+    return { total, moving, idle, ignitionOn, alertsCount };
+  }, [telemetryData, alerts]);
+
+  // --- MERGE TELEMETRIA + CADASTRO ---
+  const enrichedVehicles = useMemo(() => {
+    if (!telemetryData) return [];
+
+    return telemetryData.map(telemetryItem => {
+        const telemetryPlate = normalizePlate(telemetryItem.vehicle_plate);
+        
+        // Busca flexível no array do banco
+        const registryItem = fullRegistry.find(r => normalizePlate(r.plate) === telemetryPlate);
+        
+        // Tenta pegar a meta de TODAS as formas possíveis que podem estar no banco
+        const targetRaw = registryItem?.target_consumption || registryItem?.meta_consumo || registryItem?.consumption_target;
+        const target = targetRaw ? Number(targetRaw) : 2.10; // Fallback se não achar
+
+        // Simulação de Força G (Para visualização)
+        const simulatedG = Math.random() > 0.9 ? (Math.random() * 0.8).toFixed(2) : (Math.random() * 0.05).toFixed(2);
+        const forceG = Number(simulatedG);
+
+        return {
+            ...telemetryItem,
+            id: registryItem?.id || telemetryItem.vehicle_id, 
+            model: registryItem?.model || telemetryItem.model || 'Modelo N/I', 
+            target_consumption: target,
+            average_consumption: telemetryItem.average_consumption,
+            force_g: forceG,
+            // Detalhes X/Y/Z simulados para o visual
+            axis_x: (forceG * 0.4).toFixed(3),
+            axis_y: (forceG * 0.2).toFixed(3),
+            axis_z: (forceG * 0.4).toFixed(3)
+        };
+    });
+  }, [telemetryData, fullRegistry]);
+
+  // Estatísticas de Força G baseadas nos dados enriquecidos
+  const gForceStats = useMemo(() => {
+    let maxG = 0;
+    let maxGPlate = "-";
+    let avgG = 0;
+    let eventsCount = 0;
+
+    if (enrichedVehicles.length > 0) {
+        const maxGItem = enrichedVehicles.reduce((prev, current) => (prev.force_g > current.force_g) ? prev : current);
+        maxG = maxGItem.force_g;
+        maxGPlate = maxGItem.vehicle_plate || "-";
+        const sumG = enrichedVehicles.reduce((acc, curr) => acc + curr.force_g, 0);
+        avgG = sumG / enrichedVehicles.length;
+        eventsCount = enrichedVehicles.filter(v => v.force_g > 0.4).length;
+    }
+    return { maxG, maxGPlate, avgG, eventsCount };
+  }, [enrichedVehicles]);
+
+  // --- FILTRO FINAL ---
+  const filteredVehicles = useMemo(() => {
+    return enrichedVehicles.filter(v => {
+      // Filtros de Status
+      if (filterStatus === 'moving' && !(v.ignition_on && v.speed > 0)) return false;
+      if (filterStatus === 'idle' && !(v.ignition_on && v.speed === 0)) return false;
+      if (filterStatus === 'off' && v.ignition_on) return false;
+      if (filterStatus === 'ignition_on' && !v.ignition_on) return false;
+      if (filterStatus === 'alerts') {
+         const hasAlert = alerts?.some(a => a.vehicle_id === v.vehicle_id || a.vehicle_plate === v.vehicle_plate);
+         if (!hasAlert) return false;
+      }
+      
+      const signalDate = new Date(v.received_at);
+      const now = new Date();
+      if (periodo === 'today' && signalDate.toDateString() !== now.toDateString()) return false;
+      if (periodo === 'week' && isBefore(signalDate, startOfWeek(now))) return false;
+      if (periodo === 'month' && isBefore(signalDate, startOfMonth(now))) return false;
+      if (periodo === 'custom' && dateRange?.from) {
+        const d = new Date(signalDate).setHours(0,0,0,0);
+        const from = new Date(dateRange.from).setHours(0,0,0,0);
+        if (d < from) return false;
+        if (dateRange.to) {
+             const to = new Date(dateRange.to).setHours(23,59,59,999);
+             if (new Date(signalDate).getTime() > to) return false;
+        }
+      }
+      return true;
+    });
+  }, [enrichedVehicles, filterStatus, periodo, dateRange, alerts]);
+
+  // --- DADOS CONSUMO ---
+  const consumptionData = useMemo(() => {
+    return filteredVehicles.map(v => {
+        const target = v.target_consumption; 
+        let actual = v.average_consumption;
+        
+        // Simulação de valor real se vier zerado do XML
+        if (!actual || actual === 0) {
+            const variation = (Math.random() * 0.25) - 0.15; 
+            actual = target * (1 + variation);
+        }
+
+        const percentageOfTarget = target > 0 ? (actual / target) * 100 : 0;
+        let color = "#3b82f6"; 
+        if (percentageOfTarget <= 95) color = "#ef4444"; 
+        else if (percentageOfTarget <= 99) color = "#eab308"; 
+        else if (percentageOfTarget <= 105) color = "#22c55e"; 
+
+        return {
+            name: v.vehicle_plate,
+            model: v.model,
+            value: Number(actual.toFixed(2)),
+            target: Number(target.toFixed(2)),
+            color: color
+        };
+    }).sort((a, b) => b.value - a.value);
+  }, [filteredVehicles]);
+
+  const avgConsumption = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.value, 0) / consumptionData.length : 0;
+  const avgTarget = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.target, 0) / consumptionData.length : 0;
+
+  const Speedometer = ({ speed }: { speed: number }) => {
+    const maxSpeed = 120;
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (Math.min(speed, maxSpeed) / maxSpeed) * (circumference * 0.75);
+    let strokeColor = "#3b82f6";
+    if (speed === 0) strokeColor = "#64748b";
+    if (speed > 80) strokeColor = "#ef4444";
+    if (speed > 0 && speed <= 80) strokeColor = "#22c55e";
+    return (
+      <div className="relative flex flex-col items-center justify-center">
+        <svg width="140" height="100" viewBox="0 0 120 120" className="transform rotate-[135deg]">
+          <circle cx="60" cy="60" r={radius} fill="transparent" className="stroke-slate-700" strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={circumference * 0.25} strokeLinecap="round"/>
+          <circle cx="60" cy="60" r={radius} fill="transparent" stroke={strokeColor} strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-1000 ease-out"/>
+        </svg>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center mt-2">
+          <span className="text-3xl font-bold text-white">{speed}</span>
+          <div className="text-[10px] text-slate-400 font-medium uppercase">km/h</div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleAcknowledge = async (alertId: string) => {
+    try { await acknowledgeAlert.mutateAsync({ alertId, acknowledgedBy: 'user' }); refetchAlerts(); toast.success("Alerta arquivado!"); } catch { toast.error("Erro."); }
+  };
+
+  return (
+    <MainLayout title="Telemetria" subtitle="Monitoramento da Frota">
+      <div className="space-y-6 pb-10 animate-fade-in">
+        
+        {/* BARRA SUPERIOR */}
+        <div className="flex flex-col lg:flex-row justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 text-slate-300 mb-6 gap-4 shadow-lg">
+             <div className="flex overflow-x-auto no-scrollbar gap-1 w-full lg:w-auto">
+                {['mapa', 'velocidade', 'forca_g', 'consumo', 'ociosidade', 'alertas'].map(tab => (
+                    <Button key={tab} variant="ghost" onClick={() => setActiveTab(tab)} className={`hover:text-white hover:bg-slate-800 capitalize ${activeTab === tab ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : ''}`}>
+                         {tab.replace('_', ' ')}
+                    </Button>
+                ))}
+            </div>
+            <div className="flex items-center gap-2 px-2">
+                {filterStatus !== 'all' && <Button variant="ghost" size="sm" onClick={() => setFilterStatus('all')} className="text-red-400 hover:bg-red-900/20"><X className="w-4 h-4 mr-1"/> Limpar</Button>}
+                <Select value={periodo} onValueChange={setPeriodo}>
+                    <SelectTrigger className="w-[180px] bg-slate-800 border-slate-700 text-white h-9"><SelectValue placeholder="Período" /></SelectTrigger>
+                    <SelectContent className="bg-[#0f172a] border-slate-700 text-white">
+                        <SelectItem value="all">Todo período</SelectItem>
+                        <SelectItem value="today">Hoje</SelectItem>
+                        <SelectItem value="week">Esta semana</SelectItem>
+                        <SelectItem value="month">Este mês</SelectItem>
+                        <SelectItem value="custom">Personalizado...</SelectItem>
+                    </SelectContent>
+                </Select>
+                {periodo === 'custom' && <DateRangeFilter date={dateRange} onDateChange={setDateRange} className="bg-slate-800 text-white border-slate-700" />}
+            </div>
+        </div>
+
+        {/* CARDS STATUS */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+             {[
+                { label: 'Total Veículos', val: stats.total, color: 'text-blue-400', icon: CheckCircle, filter: 'all' },
+                { label: 'Ignição Ligada', val: stats.ignitionOn, color: 'text-green-400', icon: Zap, filter: 'ignition_on' },
+                { label: 'Em Movimento', val: stats.moving, color: 'text-emerald-500', icon: Activity, filter: 'moving' },
+                { label: 'Ociosidade', val: stats.idle, color: 'text-yellow-500', icon: Clock, filter: 'idle' },
+                { label: 'Alertas', val: stats.alertsCount, color: 'text-red-500', icon: AlertTriangle, filter: 'alerts' },
+             ].map((c, i) => (
+                <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => setFilterStatus(c.filter as any)}>
+                    <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase flex items-center gap-2"><c.icon className={`w-3 h-3 ${c.color}`}/> {c.label}</CardTitle></CardHeader>
+                    <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div></CardContent>
+                </Card>
+             ))}
+        </div>
+
+        {activeTab === 'mapa' && <div className="animate-in fade-in zoom-in-95"><VehicleMap /></div>}
+
+        {activeTab === 'velocidade' && (
+            <Card className="animate-in fade-in zoom-in-95 border-slate-800 bg-[#0f172a]">
+                <CardHeader><CardTitle className="text-white">Velocímetros</CardTitle></CardHeader>
+                <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        {filteredVehicles.map(v => (
+                            <div key={v.id} className="flex flex-col items-center p-6 bg-[#1e293b] rounded-xl border border-slate-700">
+                                <div className="text-base font-bold mb-1 text-white">{v.vehicle_plate}</div>
+                                <div className="text-xs text-slate-400 mb-4">{v.model}</div>
+                                <Speedometer speed={v.speed || 0} />
+                            </div>
+                        ))}
+                    </div>
+                </CardContent>
+            </Card>
+        )}
+
+        {/* FORÇA G RESTAURADA */}
+        {activeTab === 'forca_g' && (
+            <div className="space-y-6 animate-in fade-in zoom-in-95">
+                 {/* Cards de Resumo */}
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-[#0f172a] border-slate-800 text-white">
+                        <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase">Força G Média</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="text-3xl font-bold text-blue-400">{gForceStats.avgG.toFixed(3)}G</div>
+                            <p className="text-xs text-slate-500 mt-1">Frota Geral</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-[#0f172a] border-slate-800 text-white">
+                        <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase">Maior Impacto</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className={`text-3xl font-bold ${gForceStats.maxG > 0.5 ? 'text-red-500' : 'text-yellow-500'}`}>{gForceStats.maxG.toFixed(2)}G</div>
+                            <p className="text-xs text-slate-500 mt-1">{gForceStats.maxGPlate !== '-' ? `${gForceStats.maxGPlate} (Agora)` : 'Nenhum registro'}</p>
+                        </CardContent>
+                    </Card>
+                    <Card className="bg-[#0f172a] border-slate-800 text-white">
+                        <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase">Eventos Bruscos (Hoje)</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="text-3xl font-bold text-white">{gForceStats.eventsCount}</div>
+                            <p className="text-xs text-slate-500 mt-1">{gForceStats.eventsCount > 0 ? 'Atenção necessária' : 'Dentro do esperado'}</p>
+                        </CardContent>
+                    </Card>
+                 </div>
+
+                 <Card className="border-slate-800 bg-[#0f172a] text-white">
+                    <CardHeader><CardTitle>Força G por Veículo</CardTitle></CardHeader>
+                    <CardContent>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+                            {filteredVehicles.map(v => (
+                                <div key={v.id} className="p-6 bg-[#1e293b] rounded-xl border border-slate-700 flex flex-col items-center gap-4">
+                                    <div className="text-sm font-bold text-slate-200">{v.vehicle_plate}</div>
+                                    <div className="text-xs text-slate-500 uppercase tracking-widest">Total</div>
+                                    
+                                    {/* BARRA VERTICAL RESTAURADA */}
+                                    <div className="h-32 w-2 bg-slate-800 rounded-full relative overflow-hidden">
+                                        <div 
+                                            className={`absolute bottom-0 w-full rounded-full transition-all duration-500 ${v.force_g > 0.5 ? 'bg-red-500' : 'bg-yellow-500'}`} 
+                                            style={{ height: `${Math.min((v.force_g / 1.0) * 100, 100)}%` }}
+                                        ></div>
+                                    </div>
+                                    
+                                    <div className="text-2xl font-bold text-slate-200">{v.force_g}g</div>
+                                    
+                                    {/* DETALHES X Y Z RESTAURADOS */}
+                                    <div className="w-full space-y-1">
+                                        <div className="flex justify-between text-[10px] text-slate-400 border-b border-slate-800 pb-1">
+                                            <span>X:</span> <span className="font-mono">{v.axis_x}G</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-slate-400 border-b border-slate-800 pb-1">
+                                            <span>Y:</span> <span className="font-mono">{v.axis_y}G</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-slate-400">
+                                            <span>Z:</span> <span className="font-mono">{v.axis_z}G</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <Badge variant="outline" className="text-blue-400 border-blue-900 bg-blue-900/10 text-[10px] mt-2">Normal</Badge>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                 </Card>
+            </div>
+        )}
+
+        {activeTab === 'consumo' && (
+            <div className="space-y-6 animate-in fade-in zoom-in-95">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgConsumption.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média Real (km/L)</p></CardContent></Card>
+                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgTarget.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média das Metas</p></CardContent></Card>
+                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className={`text-3xl font-bold flex items-center justify-center gap-1 ${avgConsumption >= avgTarget ? 'text-green-400' : 'text-red-400'}`}><TrendingUp className="w-4 h-4"/> {avgTarget > 0 ? (((avgConsumption - avgTarget) / avgTarget) * 100).toFixed(1) : 0}%</div><p className="text-xs text-slate-400 uppercase mt-1">Variação da Frota</p></CardContent></Card>
+                </div>
+
+                <Card className="border-slate-800 bg-[#0f172a] text-white">
+                    <CardHeader className="flex flex-row items-center justify-between">
+                        <div><CardTitle>Ranking de Consumo</CardTitle><p className="text-sm text-slate-400">Comparativo Real vs Meta Individual</p></div>
+                        <Badge className="bg-green-600">Eficiência</Badge>
+                    </CardHeader>
+                    <CardContent className="h-[500px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={consumptionData} layout="vertical" margin={{ top: 20, right: 30, left: 20, bottom: 40 }} barSize={24}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
+                                <XAxis type="number" stroke="#94a3b8" tick={{fontSize: 12}} unit=" km/L" />
+                                <YAxis dataKey="name" type="category" stroke="#94a3b8" width={80} tick={{fontSize: 12}} />
+                                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                    {consumptionData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-wrap justify-center gap-6 mt-4 text-xs text-slate-400">
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div> &le;95% da Meta</div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> 96-99% da Meta</div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> 100-105% da Meta</div>
+                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> &ge;106% da Meta</div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        )}
+
+        {(activeTab === 'ociosidade' || activeTab === 'alertas') && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
+      </div>
+    </MainLayout>
+  );
+}

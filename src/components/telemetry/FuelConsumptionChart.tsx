@@ -3,248 +3,80 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useVehicleTelemetry } from '@/hooks/useTelemetry';
 import { useVehicles } from '@/hooks/useVehicles';
-import { useFuelEntries } from '@/hooks/useFuelEntries';
-import { Fuel, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  ReferenceLine,
-} from 'recharts';
+import { useFuelEntries } from '@/hooks/useFuelEntries'; // Se der erro aqui, me avise
+import { Fuel } from 'lucide-react';
 
-interface ConsumptionData {
-  vehicle_plate: string;
-  consumption: number;
-  target: number;
-  difference: number;
-  fuelLevel: number;
-  source: 'telemetry' | 'manual';
-}
-
+// --- CORREÇÃO AQUI: export function (sem default) ---
 export function FuelConsumptionChart() {
   const { data: telemetry } = useVehicleTelemetry();
   const { data: vehicles } = useVehicles();
-  const { data: fuelEntries } = useFuelEntries();
+  const fuelEntriesQuery = useFuelEntries(); 
+  const fuelEntries = fuelEntriesQuery?.data || [];
 
-  const consumptionData = useMemo<ConsumptionData[]>(() => {
-    if (!vehicles) return [];
+  const chartData = useMemo(() => {
+    if (!vehicles || !Array.isArray(vehicles)) return [];
 
-    // Show ALL active vehicles — never hide any from the chart
-    const activeVehicles = vehicles.filter((v) => v.status === 'active');
-    const results: ConsumptionData[] = [];
-
-    for (const vehicle of activeVehicles) {
-      const target = vehicle.consumption_target || 3.5;
-      const t = telemetry?.find((tel) => tel.vehicle_id === vehicle.id);
-
-      // Get all fuel entries for this vehicle, sorted by mileage
-      const vehicleFuel = (fuelEntries?.filter((f) => f.vehicle_id === vehicle.id) || [])
-        .sort((a, b) => a.mileage - b.mileage);
-
+    // Filtra ativos
+    const activeVehicles = vehicles.filter(v => v.status === 'active');
+    
+    return activeVehicles.map(vehicle => {
+      const target = Number(vehicle.consumption_target) || 2.5;
+      const plate = vehicle.license_plate || vehicle.plate || 'S/ Placa';
       let consumption = 0;
-      let source: 'telemetry' | 'manual' = 'manual';
-
-      // Method 1: Multiple manual entries — most reliable
-      if (vehicleFuel.length >= 2) {
-        const totalKm = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
-        const totalLiters = vehicleFuel.reduce((acc, f) => acc + Number(f.liters), 0);
-        if (totalLiters > 0 && totalKm > 0) {
-          consumption = totalKm / totalLiters;
+      
+      try {
+        const vehicleFuel = fuelEntries.filter(f => f.vehicle_id === vehicle.id).sort((a, b) => a.mileage - b.mileage);
+        if (vehicleFuel.length >= 2) {
+          const dist = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
+          const liters = vehicleFuel.reduce((acc, f) => acc + Number(f.liters), 0);
+          if (dist > 0 && liters > 0) consumption = dist / liters;
         }
+      } catch (e) { console.error(e); }
+
+      let status: 'good' | 'warning' | 'bad' | 'nodata' = 'nodata';
+      if (consumption > 0) {
+        if (consumption >= target) status = 'good';
+        else if (consumption >= target * 0.9) status = 'warning';
+        else status = 'bad';
       }
 
-      // Method 2: Single fuel entry + current telemetry odometer
-      if (consumption === 0 && vehicleFuel.length === 1 && t && t.odometer > 0) {
-        const entry = vehicleFuel[0];
-        const km = Math.abs(t.odometer - entry.mileage);
-        const liters = Number(entry.liters);
-        if (km > 10 && liters > 0) {
-          consumption = km / liters;
-        }
-      }
+      return { plate, value: consumption, target, status };
+    }).sort((a, b) => {
+        if (a.value > 0 && b.value === 0) return -1;
+        if (a.value === 0 && b.value > 0) return 1;
+        return a.plate.localeCompare(b.plate);
+    });
+  }, [vehicles, fuelEntries, telemetry]);
 
-      // Method 3: Telemetry fuel_level + odometer
-      if (consumption === 0 && t && t.fuel_level && t.fuel_level > 0 && t.odometer > 0) {
-        consumption = Math.max(0.5, Math.min(8, t.odometer / (t.fuel_level * 100)));
-        source = 'telemetry';
-      }
-
-      // ALWAYS push the vehicle — even if consumption is 0
-      results.push({
-        vehicle_plate: vehicle.plate,
-        consumption: parseFloat(consumption.toFixed(2)),
-        target,
-        difference: parseFloat((consumption - target).toFixed(2)),
-        fuelLevel: t?.fuel_level || 0,
-        source,
-      });
-    }
-
-    return results.sort((a, b) => b.consumption - a.consumption);
-  }, [telemetry, vehicles, fuelEntries]);
-
-  const avgConsumption =
-    consumptionData.length > 0
-      ? consumptionData.reduce((acc, v) => acc + v.consumption, 0) / consumptionData.length
-      : 0;
-
-  const avgTarget =
-    consumptionData.length > 0
-      ? consumptionData.reduce((acc, v) => acc + v.target, 0) / consumptionData.length
-      : 3.5;
-
-  const getBarColor = (consumption: number, target: number) => {
-    if (consumption === 0) return 'hsl(var(--muted-foreground))';
-    const ratio = consumption / target;
-    if (ratio <= 0.95) return 'hsl(var(--success))';
-    if (ratio <= 1.05) return 'hsl(var(--warning))';
-    return 'hsl(var(--destructive))';
-  };
+  const validData = chartData.filter(d => d.value > 0);
+  const avgConsumption = validData.length > 0 ? validData.reduce((acc, v) => acc + v.value, 0) / validData.length : 0;
+  const avgTarget = validData.length > 0 ? validData.reduce((acc, v) => acc + v.target, 0) / validData.length : 2.5;
+  const variation = avgConsumption > 0 ? ((avgConsumption - avgTarget) / avgTarget) * 100 : 0;
 
   return (
-    <Card>
+    <Card className="col-span-4 shadow-md border-slate-200">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Fuel className="h-5 w-5 text-primary" />
-              Consumo de Combustível
-            </CardTitle>
-            <CardDescription>
-              Consumo real vs meta (km/L)
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            {avgConsumption <= avgTarget ? (
-              <Badge className="bg-success text-success-foreground flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                Economia
-              </Badge>
-            ) : (
-              <Badge className="bg-destructive text-destructive-foreground flex items-center gap-1">
-                <TrendingDown className="h-3 w-3" />
-                Prejuízo
-              </Badge>
-            )}
-          </div>
+            <div><CardTitle className="flex items-center gap-2 text-slate-800"><Fuel className="h-5 w-5 text-blue-600" />Consumo de Combustível</CardTitle><CardDescription>Frota total: {chartData.length} veículos</CardDescription></div>
+             <Badge variant={variation >= 0 ? "default" : "destructive"} className="h-6">{variation >= 0 ? "Economia" : "Abaixo da Meta"}</Badge>
+        </div>
+        <div className="grid grid-cols-3 gap-4 mt-4 bg-slate-900 text-white p-4 rounded-xl shadow-inner">
+            <div className="text-center border-r border-slate-700"><div className="text-2xl font-bold">{avgConsumption.toFixed(2)}</div><div className="text-xs text-slate-400">Média Real (km/L)</div></div>
+            <div className="text-center border-r border-slate-700"><div className="text-2xl font-bold">{avgTarget.toFixed(2)}</div><div className="text-xs text-slate-400">Meta (km/L)</div></div>
+            <div className="text-center"><div className={`text-2xl font-bold ${variation >= 0 ? 'text-green-400' : 'text-red-400'}`}>{variation > 0 ? '+' : ''}{variation.toFixed(1)}%</div><div className="text-xs text-slate-400">Variação</div></div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Summary Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="p-4 rounded-lg bg-muted/50 text-center">
-            <p className="text-2xl font-bold text-foreground">{avgConsumption.toFixed(2)}</p>
-            <p className="text-sm text-muted-foreground">Média Real (km/L)</p>
-          </div>
-          <div className="p-4 rounded-lg bg-muted/50 text-center">
-            <p className="text-2xl font-bold text-foreground">{avgTarget.toFixed(2)}</p>
-            <p className="text-sm text-muted-foreground">Meta (km/L)</p>
-          </div>
-          <div className="p-4 rounded-lg bg-muted/50 text-center">
-            <div className="flex items-center justify-center gap-1">
-              {avgConsumption > avgTarget ? (
-                <TrendingDown className="h-5 w-5 text-destructive" />
-              ) : avgConsumption < avgTarget ? (
-                <TrendingUp className="h-5 w-5 text-success" />
-              ) : (
-                <Minus className="h-5 w-5 text-muted-foreground" />
-              )}
-              <p
-                className={`text-2xl font-bold ${
-                  avgConsumption > avgTarget
-                    ? 'text-destructive'
-                    : avgConsumption < avgTarget
-                    ? 'text-success'
-                    : 'text-foreground'
-                }`}
-              >
-                {avgTarget > 0 ? ((avgConsumption - avgTarget) * 100 / avgTarget).toFixed(1) : '0.0'}%
-              </p>
+      <CardContent>
+        <div className="space-y-4 mt-4 max-h-[600px] overflow-y-auto pr-2">
+          {chartData.map((item) => (
+            <div key={item.plate} className="space-y-1">
+              <div className="flex justify-between text-sm"><span className="font-bold text-slate-700">{item.plate}</span><div className="flex gap-4"><span className="text-slate-400 text-xs">Meta: {item.target}</span><span className={item.value > 0 ? "font-bold text-slate-800" : "text-slate-400"}>{item.value > 0 ? `${item.value.toFixed(2)} km/L` : 'S/ Dados'}</span></div></div>
+              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden relative">
+                <div className="absolute top-0 bottom-0 w-0.5 bg-slate-800 z-10 opacity-20" style={{ left: `${(1 / 1.5) * 100}%` }} />
+                <div className={`h-full rounded-full transition-all duration-500 ${item.status === 'good' ? 'bg-green-500' : item.status === 'bad' ? 'bg-red-500' : 'bg-slate-300'}`} style={{ width: `${item.value > 0 ? Math.min((item.value / (item.target * 1.5)) * 100, 100) : 0}%` }} />
+              </div>
             </div>
-            <p className="text-sm text-muted-foreground">Variação</p>
-          </div>
-        </div>
-
-        {/* Chart */}
-        {consumptionData.length > 0 ? (
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={consumptionData} layout="vertical" margin={{ left: 60, right: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                <XAxis type="number" domain={[0, 'dataMax + 1']} tickFormatter={(v) => `${v} km/L`} />
-                <YAxis type="category" dataKey="vehicle_plate" width={80} />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload as ConsumptionData;
-                      return (
-                        <div className="rounded-lg bg-background border p-3 shadow-lg">
-                          <p className="font-bold">{data.vehicle_plate}</p>
-                          {data.consumption === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                              Sem dados de abastecimento registrados.
-                              <br />
-                              Cadastre abastecimentos em "Abastecimentos".
-                            </p>
-                          ) : (
-                            <>
-                              <p className="text-sm">Consumo: {data.consumption} km/L</p>
-                              <p className="text-sm">Meta: {data.target} km/L</p>
-                              <p
-                                className={`text-sm font-medium ${
-                                  data.difference > 0 ? 'text-destructive' : 'text-success'
-                                }`}
-                              >
-                                {data.difference > 0 ? '+' : ''}
-                                {data.difference} km/L
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Fonte: {data.source === 'telemetry' ? '📡 Telemetria' : '✏️ Manual'}
-                              </p>
-                            </>
-                          )}
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <ReferenceLine x={avgTarget} stroke="hsl(var(--primary))" strokeDasharray="5 5" />
-                <Bar dataKey="consumption" radius={[0, 4, 4, 0]}>
-                  {consumptionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={getBarColor(entry.consumption, entry.target)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground gap-2">
-            <Fuel className="h-12 w-12 opacity-50" />
-            <p>Nenhum dado de consumo disponível</p>
-            <p className="text-sm">Registre abastecimentos para ver o gráfico de consumo</p>
-          </div>
-        )}
-
-        {/* Legend */}
-        <div className="flex items-center justify-center gap-6 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-success" />
-            <span>Abaixo da meta</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-warning" />
-            <span>Na meta</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-destructive" />
-            <span>Acima da meta</span>
-          </div>
+          ))}
         </div>
       </CardContent>
     </Card>

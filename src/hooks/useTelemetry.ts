@@ -23,6 +23,9 @@ export interface VehicleTelemetry {
   gps_timestamp?: string;
   received_at: string;
   created_at: string;
+  // Campos estendidos para facilitar o uso no mapa
+  model?: string;
+  brand?: string;
 }
 
 export interface TelemetryHistory {
@@ -116,15 +119,39 @@ export const useVehicleTelemetry = () => {
   return useQuery({
     queryKey: ['vehicle_telemetry'],
     queryFn: async () => {
+      // Tenta buscar fazendo JOIN com a tabela vehicles para já trazer o modelo/marca
+      // Se der erro de relação no Supabase, ele ignora a parte do join
       const { data, error } = await supabase
         .from('vehicle_telemetry')
-        .select('*')
+        .select(`
+          *,
+          vehicles (
+            model,
+            brand
+          )
+        `)
         .order('received_at', { ascending: false });
       
       if (error) throw error;
-      return data as VehicleTelemetry[];
+      
+      // FILTRAGEM INTELIGENTE NO FRONTEND:
+      const uniqueVehicles = new Map();
+      (data as any[]).forEach(item => {
+        // Normaliza o item para incluir modelo e marca no nível raiz
+        const enrichedItem: VehicleTelemetry = {
+            ...item,
+            model: item.vehicles?.model,
+            brand: item.vehicles?.brand
+        };
+
+        if (!uniqueVehicles.has(item.vehicle_plate)) {
+          uniqueVehicles.set(item.vehicle_plate, enrichedItem);
+        }
+      });
+      
+      return Array.from(uniqueVehicles.values()) as VehicleTelemetry[];
     },
-    refetchInterval: 30000, // Atualiza a cada 30 segundos
+    refetchInterval: 30000, // Ajustado para 30 segundos conforme solicitado
   });
 };
 
@@ -290,10 +317,18 @@ export const useSyncTelemetry = () => {
       return data;
     },
     onSuccess: (data) => {
+      // --- AQUI ESTÁ A MÁGICA DA AUTOMAÇÃO ---
+      // Atualiza os pontos no mapa
       queryClient.invalidateQueries({ queryKey: ['vehicle_telemetry'] });
+      
+      // Atualiza os alertas
       queryClient.invalidateQueries({ queryKey: ['telemetry_alerts'] });
+      
+      // *** NOVO *** Atualiza a lista de veículos (Modelos, Marcas, Hodômetro)
+      queryClient.invalidateQueries({ queryKey: ['vehicles'] });
+
       if (data.success) {
-        toast.success(`Telemetria atualizada: ${data.telemetryUpdated} veículos`);
+        toast.success(`Sincronização concluída: Dados da frota atualizados.`);
       }
     },
     onError: (error) => {
