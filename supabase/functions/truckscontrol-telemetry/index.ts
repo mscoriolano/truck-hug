@@ -166,10 +166,10 @@ Deno.serve(async (req) => {
 
       if (placa || veiID) {
         telemetryMessages.push({
-          placa, veiID, latitude: lat, longitude: lng, velocidade: vel,
+          placa: placa || undefined, veiID: veiID || undefined, latitude: lat, longitude: lng, velocidade: vel,
           ignicao: (ign === "1" || ign === "true" || ign === "on" || vel > 0),
           mld: mId || undefined, odometro: odo,
-          modelo, sinonimo // Guarda para usar no update
+          modelo: modelo || undefined, sinonimo: sinonimo || undefined
         });
       }
     }

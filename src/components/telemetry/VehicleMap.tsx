@@ -270,7 +270,7 @@ export function VehicleMap() {
                 </LayersControl>
                 
                 <ZoomHandler onZoom={setCurrentZoom} />
-                <MapController center={mapCenter} zoom={14} />
+                <MapController center={mapCenter} />
                 
                 {groupedVehicles.map((group, index) => {
                     const mainVehicle = group[0];
