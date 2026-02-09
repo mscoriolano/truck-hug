@@ -520,7 +520,7 @@ export function TrucksControlSync() {
             </div>
           </div>
 
-          {debugMode && canDownload ? (
+          {debugMode ? (
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="default"
@@ -531,16 +531,20 @@ export function TrucksControlSync() {
                 <RefreshCw className={isSyncing ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
                 Executar Debug Completo
               </Button>
-              <Button variant="secondary" onClick={buildSupportBundle} className="w-full sm:w-auto">
-                <Download className="mr-2 h-4 w-4" />
-                Baixar pacote p/ suporte
-              </Button>
-              <Button variant="outline" onClick={downloadRequestXml} className="w-full sm:w-auto">
-                Baixar XML requisição
-              </Button>
-              <Button variant="outline" onClick={downloadFirstResponse} className="w-full sm:w-auto">
-                Baixar XML resposta
-              </Button>
+              {canDownload && (
+                <>
+                  <Button variant="secondary" onClick={buildSupportBundle} className="w-full sm:w-auto">
+                    <Download className="mr-2 h-4 w-4" />
+                    Baixar pacote p/ suporte
+                  </Button>
+                  <Button variant="outline" onClick={downloadRequestXml} className="w-full sm:w-auto">
+                    Baixar XML requisição
+                  </Button>
+                  <Button variant="outline" onClick={downloadFirstResponse} className="w-full sm:w-auto">
+                    Baixar XML resposta
+                  </Button>
+                </>
+              )}
             </div>
           ) : null}
         </div>
@@ -648,22 +652,19 @@ export function TrucksControlSync() {
           </div>
         )}
 
-        {/* Sync button - only visible to managers */}
-        {isManager && (
-          <Button onClick={handleSync} disabled={isSyncing} className="w-full">
-            {isSyncing ? (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                Sincronizando...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Sincronizar Agora
-              </>
-            )}
-          </Button>
-        )}
+        <Button onClick={handleSync} disabled={isSyncing} className="w-full">
+          {isSyncing ? (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              Sincronizando...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Sincronizar Agora
+            </>
+          )}
+        </Button>
 
         <p className="text-center text-xs text-muted-foreground">
           {isManager 
