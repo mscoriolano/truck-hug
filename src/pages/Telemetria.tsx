@@ -113,7 +113,7 @@ export default function Telemetria() {
             id: registryItem?.id || telemetryItem.vehicle_id, 
             model: registryItem?.model || telemetryItem.model || 'Modelo N/I', 
             target_consumption: target,
-            average_consumption: telemetryItem.average_consumption,
+            average_consumption: (telemetryItem as any).average_consumption ?? 0,
             force_g: forceG,
             // Detalhes X/Y/Z simulados para o visual
             axis_x: (forceG * 0.4).toFixed(3),
