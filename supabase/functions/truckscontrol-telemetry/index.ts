@@ -39,7 +39,6 @@ function parseCoordinate(val: string | null): number {
 }
 
 function buildTelemetryRequestXml(user: string, password: string, opts?: { veiID?: string; mId?: number }): string {
-  // IMPORTANTE: <mId> com I maiúsculo. Nunca null/undefined, default 1.
   let mIdValue = 1;
   if (opts?.mId) {
     const parsed = Number(opts.mId);
@@ -65,7 +64,6 @@ function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boo
   if (!bytes.length) return { text: "", wasZip: false };
   if (looksLikeZip(bytes)) {
     try {
-      // ZIP: skip local file header, inflate raw
       const nameLen = bytes[26] | (bytes[27] << 8);
       const extraLen = bytes[28] | (bytes[29] << 8);
       const dataStart = 30 + nameLen + extraLen;
@@ -88,6 +86,17 @@ function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boo
   return { text: strFromU8(bytes), wasZip: false };
 }
 
+// ============ Haversine distance (meters) ============
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // ============ Journey macro mapping ============
 const JOURNEY_MACRO_MAP: Record<string, string> = {
   "INICIO DE VIAGEM": "journey_start",
@@ -107,9 +116,7 @@ const JOURNEY_MACRO_MAP: Record<string, string> = {
 
 function mapMacroToEventType(dMac: string): string {
   const normalized = dMac.toUpperCase().trim().replace(/\s+/g, " ");
-  // Try exact match first
   if (JOURNEY_MACRO_MAP[normalized]) return JOURNEY_MACRO_MAP[normalized];
-  // Try partial match
   for (const [key, value] of Object.entries(JOURNEY_MACRO_MAP)) {
     if (normalized.includes(key)) return value;
   }
@@ -120,7 +127,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const FETCH_TIMEOUT_MS = 55_000;
-  const MAX_RETRIES = 0; // sem retry - API lenta, timeout de 55s usa quase todo o tempo do edge function
+  const MAX_RETRIES = 0;
 
   try {
     const input = await req.json().catch(() => ({}));
@@ -165,7 +172,7 @@ Deno.serve(async (req) => {
       console.log(maskPasswordInXml(xmlRequest));
     }
 
-    // ============ Fetch com retry ============
+    // ============ Fetch ============
     let responseText = "";
     let fetchSuccess = false;
 
@@ -210,7 +217,6 @@ Deno.serve(async (req) => {
     if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
       const errMsg = parseXmlValue(responseText, "erro") || "Erro da API TrucksControl";
       const codigo = parseXmlValue(responseText, "codigo");
-      console.log(`[truckscontrol-telemetry] API error: ${errMsg} codigo=${codigo}`);
       return new Response(JSON.stringify({
         success: false,
         error: codigo ? `${errMsg} (código ${codigo})` : errMsg,
@@ -224,17 +230,13 @@ Deno.serve(async (req) => {
 
     if (!messageNodes.length) {
       return new Response(JSON.stringify({
-        success: true,
-        timestamp: new Date().toISOString(),
-        messagesReceived: 0,
-        telemetryUpdated: 0,
-        alertsCreated: 0,
-        journeyEventsCreated: 0,
+        success: true, timestamp: new Date().toISOString(),
+        messagesReceived: 0, telemetryUpdated: 0, alertsCreated: 0, journeyEventsCreated: 0, behaviorEventsCreated: 0,
         message: "Nenhuma mensagem nova",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ============ Pre-load vehicle cache by truckscontrol_id ============
+    // ============ Pre-load caches ============
     const { data: allVehicles } = await supabase
       .from("vehicles")
       .select("id, plate, truckscontrol_id, mileage");
@@ -246,7 +248,6 @@ Deno.serve(async (req) => {
       vehicleByPlate.set(v.plate, v);
     }
 
-    // Pre-load drivers for motID lookup
     const { data: allDrivers } = await supabase
       .from("drivers")
       .select("id, name, truckscontrol_id");
@@ -255,18 +256,39 @@ Deno.serve(async (req) => {
       if (d.truckscontrol_id) driverByTcId.set(d.truckscontrol_id, d);
     }
 
+    // Load geofence zones
+    const { data: geofenceZones } = await supabase
+      .from("geofence_zones")
+      .select("*")
+      .eq("is_active", true);
+
+    // Load telemetry settings for thresholds
+    const { data: telSettings } = await supabase
+      .from("telemetry_settings")
+      .select("*")
+      .limit(1)
+      .maybeSingle();
+
+    const speedLimitHighway = telSettings?.speed_limit_highway || 80;
+    const speedLimitUrban = telSettings?.speed_limit_urban || 60;
+
     let maxMldReceived = lastMld;
     let telemetryUpdated = 0;
     let alertsCreated = 0;
     let journeyEventsCreated = 0;
+    let behaviorEventsCreated = 0;
     let driversLinked = 0;
+    let complianceUpdated = 0;
 
-    // Batch telemetry upserts
+    // Batch collections
     const telemetryUpserts = new Map<string, any>();
     const journeyEvents: any[] = [];
     const alerts: any[] = [];
+    const behaviorEvents: any[] = [];
     const vehicleMileageUpdates: { id: string; mileage: number }[] = [];
     const driverVehicleLinks: { driverId: string; driverName: string; vehicleId: string; vehiclePlate: string }[] = [];
+    // Track journey starts/ends for compliance
+    const complianceEvents: { driverId: string; driverName: string; eventType: string; timestamp: string; vehicleId?: string }[] = [];
 
     for (const msgXml of messageNodes) {
       const mIdStr = parseXmlValue(msgXml, "mId") || parseXmlValue(msgXml, "mID") || "0";
@@ -276,7 +298,6 @@ Deno.serve(async (req) => {
       const veiID = parseXmlValue(msgXml, "veiID");
       const placa = parseXmlValue(msgXml, "placa");
       
-      // Find vehicle: priority truckscontrol_id, fallback plate
       let vehicle = veiID ? vehicleByTcId.get(veiID) : undefined;
       if (!vehicle && placa) vehicle = vehicleByPlate.get(placa);
       
@@ -285,13 +306,13 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Parse all fields
+      // Parse fields
       const lat = parseCoordinate(parseXmlValue(msgXml, "lat"));
       const lon = parseCoordinate(parseXmlValue(msgXml, "lon"));
       const vel = parseInt(parseXmlValue(msgXml, "vel") || "0");
       const evt4Raw = parseXmlValue(msgXml, "evt4");
-      const ignition = evt4Raw === "1" || vel > 0; // vel > 0 forces ignition on
-      const dt = parseXmlValue(msgXml, "dt"); // GPS timestamp
+      const ignition = evt4Raw === "1" || vel > 0;
+      const dt = parseXmlValue(msgXml, "dt");
       const odm = parseInt(parseXmlValue(msgXml, "odm") || "0");
       const rpm = parseInt(parseXmlValue(msgXml, "rpm") || "0") || null;
       const bat = parseInt(parseXmlValue(msgXml, "bat") || "0") || null;
@@ -301,19 +322,32 @@ Deno.serve(async (req) => {
       const mun = parseXmlValue(msgXml, "mun");
       const uf = parseXmlValue(msgXml, "uf");
       const rua = parseXmlValue(msgXml, "rua");
-      const ori = parseXmlValue(msgXml, "ori");
       const motID = parseXmlValue(msgXml, "motID");
       const motName = parseXmlValue(msgXml, "mot");
       const evtG = parseXmlValue(msgXml, "evtG");
 
-      // Build location string
+      // Event flags
+      const evt3 = parseXmlValue(msgXml, "evt3"); // ignition off
+      const evt13 = parseXmlValue(msgXml, "evt13"); // panic button
+      const evt34 = parseXmlValue(msgXml, "evt34"); // speeding
+      const evt35 = parseXmlValue(msgXml, "evt35"); // high RPM
+      const evt54 = parseXmlValue(msgXml, "evt54"); // idle with ignition
+      const evt59 = parseXmlValue(msgXml, "evt59"); // iButton identification
+      const evt64 = parseXmlValue(msgXml, "evt64"); // driver identification
+      const evt85 = parseXmlValue(msgXml, "evt85"); // escape button
+
       const locationParts: string[] = [];
       if (rua) locationParts.push(rua);
       if (mun) locationParts.push(mun);
       if (uf) locationParts.push(uf);
       const locationName = locationParts.join(", ") || null;
 
-      // ============ Telemetry upsert (keep latest per vehicle) ============
+      // Resolve driver
+      const driver = motID ? driverByTcId.get(motID) : undefined;
+      const driverId = driver?.id || null;
+      const driverName = motName || driver?.name || null;
+
+      // ============ Telemetry upsert ============
       const existing = telemetryUpserts.get(vehicle.id);
       const currentMId = existing?.last_mld || 0;
       
@@ -329,36 +363,37 @@ Deno.serve(async (req) => {
           odometer: odm > 0 ? odm : existing?.odometer,
           last_mld: mId > 0 ? mId : existing?.last_mld,
           rpm: rpm || existing?.rpm,
+          battery_level: bat,
           gps_timestamp: dt || existing?.gps_timestamp,
+          location_name: locationName,
+          municipality: mun || null,
+          state: uf || null,
           received_at: new Date().toISOString(),
         });
       }
 
-      // ============ Update vehicle mileage ============
+      // ============ Mileage ============
       if (odm > 0 && odm > (vehicle.mileage || 0)) {
         vehicleMileageUpdates.push({ id: vehicle.id, mileage: odm });
-        vehicle.mileage = odm; // Update cache
+        vehicle.mileage = odm;
       }
 
-      // ============ Driver identification (evt59 or motID present) ============
-      if (motID && motName) {
-        const driver = driverByTcId.get(motID);
-        if (driver) {
-          driverVehicleLinks.push({
-            driverId: driver.id,
-            driverName: driver.name,
-            vehicleId: vehicle.id,
-            vehiclePlate: vehicle.plate,
-          });
-        }
+      // ============ Driver identification (evt59/evt64/motID) ============
+      if (motID && (motName || driver)) {
+        driverVehicleLinks.push({
+          driverId: driver?.id || motID,
+          driverName: driverName || "Motorista",
+          vehicleId: vehicle.id,
+          vehiclePlate: vehicle.plate,
+        });
       }
 
       // ============ Journey macros (tpMsg === 3) ============
       if (tpMsg === 3 && dMac && tfrID) {
         const eventType = mapMacroToEventType(dMac);
         journeyEvents.push({
-          driver_name: motName || "Motorista",
-          driver_id: motID ? driverByTcId.get(motID)?.id : null,
+          driver_name: driverName || "Motorista",
+          driver_id: driverId,
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
           event_type: eventType,
@@ -371,48 +406,200 @@ Deno.serve(async (req) => {
           source: "telemetry",
           raw_data: { tfrID, tpMsg, veiID, mId, dMac },
         });
+
+        // Track for auto-compliance
+        if (driverId && (eventType === "journey_start" || eventType === "journey_end" || eventType === "meal_start" || eventType === "meal_end" || eventType === "rest_start" || eventType === "rest_end")) {
+          complianceEvents.push({
+            driverId,
+            driverName: driverName || "Motorista",
+            eventType,
+            timestamp: dt || new Date().toISOString(),
+            vehicleId: vehicle.id,
+          });
+        }
       }
 
-      // ============ Telemetry history (save every message) ============
-      // Only save if we have valid coordinates
-      if (lat !== 0 && lon !== 0) {
-        // Determine event type from evtG or events
-        let eventType: string | null = null;
-        let eventSeverity: string | null = null;
+      // ============ DRIVING BEHAVIOR EVENTS ============
+      
+      // 🔋 Battery monitoring - alert when below 24V
+      if (bat !== null && bat > 0 && bat < 24) {
+        behaviorEvents.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          event_type: "low_battery",
+          severity: bat < 20 ? "critical" : "warning",
+          latitude: lat || null,
+          longitude: lon || null,
+          location_name: locationName,
+          speed: vel,
+          battery_level: bat,
+          details: { bat, message: `Bateria do rastreador em ${bat}V` },
+          event_timestamp: dt || new Date().toISOString(),
+        });
 
-        const evt34 = parseXmlValue(msgXml, "evt34");
-        const evt35 = parseXmlValue(msgXml, "evt35");
-        
-        if (evt34 === "true") {
-          eventType = "speed_violation";
-          eventSeverity = "warning";
-        }
-        if (evt35 === "true") {
-          eventType = "harsh_braking";
-          eventSeverity = "warning";
-        }
-
-        // We'll batch insert history later to avoid N+1
-      }
-
-      // ============ Speed alerts ============
-      if (vel > 80) {
+        // Also create telemetry alert for low battery
         alerts.push({
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
-          driver_id: motID ? driverByTcId.get(motID)?.id : null,
-          driver_name: motName || null,
-          alert_type: "speed_violation",
-          severity: vel > 100 ? "critical" : "warning",
-          title: `Excesso de velocidade: ${vel} km/h`,
-          message: `Veículo ${vehicle.plate} a ${vel} km/h${locationName ? ` em ${locationName}` : ""}`,
-          speed: vel,
-          speed_limit: 80,
+          driver_id: driverId,
+          driver_name: driverName,
+          alert_type: "low_battery",
+          severity: bat < 20 ? "critical" : "warning",
+          title: `Bateria baixa: ${bat}V`,
+          message: `Rastreador do veículo ${vehicle.plate} com bateria em ${bat}V${locationName ? ` em ${locationName}` : ""}`,
           latitude: lat || null,
           longitude: lon || null,
           location_name: locationName,
           event_timestamp: dt || new Date().toISOString(),
         });
+      }
+
+      // 🚗 Speed violation
+      if (vel > speedLimitHighway) {
+        behaviorEvents.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          event_type: "speeding",
+          severity: vel > 100 ? "critical" : "warning",
+          latitude: lat || null,
+          longitude: lon || null,
+          location_name: locationName,
+          speed: vel,
+          rpm: rpm,
+          details: { speed: vel, limit: speedLimitHighway },
+          event_timestamp: dt || new Date().toISOString(),
+        });
+
+        alerts.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          alert_type: "speed_violation",
+          severity: vel > 100 ? "critical" : "warning",
+          title: `Excesso de velocidade: ${vel} km/h`,
+          message: `Veículo ${vehicle.plate} a ${vel} km/h (limite ${speedLimitHighway})${locationName ? ` em ${locationName}` : ""}`,
+          speed: vel,
+          speed_limit: speedLimitHighway,
+          latitude: lat || null,
+          longitude: lon || null,
+          location_name: locationName,
+          event_timestamp: dt || new Date().toISOString(),
+        });
+      }
+
+      // ⚙️ High RPM (evt35 or RPM > 2200)
+      if (evt35 === "true" || (rpm && rpm > 2200)) {
+        behaviorEvents.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          event_type: "high_rpm",
+          severity: rpm && rpm > 2500 ? "critical" : "warning",
+          latitude: lat || null,
+          longitude: lon || null,
+          location_name: locationName,
+          speed: vel,
+          rpm: rpm,
+          details: { rpm, evt35 },
+          event_timestamp: dt || new Date().toISOString(),
+        });
+      }
+
+      // ⏱️ Excessive idle (evt54 = true, speed 0, ignition on)
+      if (evt54 === "true" && vel === 0 && ignition) {
+        behaviorEvents.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          event_type: "excessive_idle",
+          severity: "info",
+          latitude: lat || null,
+          longitude: lon || null,
+          location_name: locationName,
+          speed: 0,
+          rpm: rpm,
+          details: { evt54: true, rpm },
+          event_timestamp: dt || new Date().toISOString(),
+        });
+      }
+
+      // 🗺️ Geofencing check
+      if (lat !== 0 && lon !== 0 && geofenceZones && geofenceZones.length > 0) {
+        for (const zone of geofenceZones) {
+          const distance = haversineDistance(lat, lon, Number(zone.latitude), Number(zone.longitude));
+          const isInside = distance <= zone.radius_meters;
+
+          if (!isInside && zone.alert_on_exit && zone.zone_type === "allowed") {
+            behaviorEvents.push({
+              vehicle_id: vehicle.id,
+              vehicle_plate: vehicle.plate,
+              driver_id: driverId,
+              driver_name: driverName,
+              event_type: "geofence_exit",
+              severity: "warning",
+              latitude: lat,
+              longitude: lon,
+              location_name: locationName,
+              speed: vel,
+              details: { zone_name: zone.name, distance_m: Math.round(distance), radius_m: zone.radius_meters },
+              event_timestamp: dt || new Date().toISOString(),
+            });
+
+            alerts.push({
+              vehicle_id: vehicle.id,
+              vehicle_plate: vehicle.plate,
+              driver_id: driverId,
+              driver_name: driverName,
+              alert_type: "geofence_violation",
+              severity: "warning",
+              title: `Fora da zona: ${zone.name}`,
+              message: `Veículo ${vehicle.plate} saiu da zona "${zone.name}" (${Math.round(distance)}m do centro)${locationName ? ` - ${locationName}` : ""}`,
+              latitude: lat,
+              longitude: lon,
+              location_name: locationName,
+              event_timestamp: dt || new Date().toISOString(),
+            });
+          }
+
+          if (isInside && zone.alert_on_enter && zone.zone_type === "restricted") {
+            behaviorEvents.push({
+              vehicle_id: vehicle.id,
+              vehicle_plate: vehicle.plate,
+              driver_id: driverId,
+              driver_name: driverName,
+              event_type: "geofence_enter_restricted",
+              severity: "critical",
+              latitude: lat,
+              longitude: lon,
+              location_name: locationName,
+              speed: vel,
+              details: { zone_name: zone.name, distance_m: Math.round(distance) },
+              event_timestamp: dt || new Date().toISOString(),
+            });
+
+            alerts.push({
+              vehicle_id: vehicle.id,
+              vehicle_plate: vehicle.plate,
+              driver_id: driverId,
+              driver_name: driverName,
+              alert_type: "geofence_violation",
+              severity: "critical",
+              title: `Zona restrita: ${zone.name}`,
+              message: `Veículo ${vehicle.plate} entrou na zona restrita "${zone.name}"${locationName ? ` - ${locationName}` : ""}`,
+              latitude: lat,
+              longitude: lon,
+              location_name: locationName,
+              event_timestamp: dt || new Date().toISOString(),
+            });
+          }
+        }
       }
     }
 
@@ -435,7 +622,6 @@ Deno.serve(async (req) => {
     for (const upd of vehicleMileageUpdates) {
       if (mileageProcessed.has(upd.id)) continue;
       mileageProcessed.add(upd.id);
-      // Get the max mileage for this vehicle
       const maxMileage = vehicleMileageUpdates
         .filter(u => u.id === upd.id)
         .reduce((max, u) => Math.max(max, u.mileage), 0);
@@ -452,7 +638,6 @@ Deno.serve(async (req) => {
         console.error("[truckscontrol-telemetry] journey events error:", journeyErr.message);
       } else {
         journeyEventsCreated = journeyData?.length || 0;
-        console.log(`[truckscontrol-telemetry] ${journeyEventsCreated} eventos de jornada criados`);
       }
     }
 
@@ -475,19 +660,139 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Link drivers to vehicles
+    // 5. Insert behavior events (deduplicate similar events within 2 min)
+    if (behaviorEvents.length > 0) {
+      for (const evt of behaviorEvents) {
+        const { data: recentBehavior } = await supabase
+          .from("driving_behavior_events")
+          .select("id")
+          .eq("vehicle_id", evt.vehicle_id)
+          .eq("event_type", evt.event_type)
+          .gte("event_timestamp", new Date(Date.now() - 2 * 60 * 1000).toISOString())
+          .limit(1)
+          .maybeSingle();
+        
+        if (!recentBehavior) {
+          const { error: bevtErr } = await supabase.from("driving_behavior_events").insert(evt);
+          if (!bevtErr) behaviorEventsCreated++;
+        }
+      }
+    }
+
+    // 6. Link drivers to vehicles + create assignments
     const linkedVehicles = new Set<string>();
     for (const link of driverVehicleLinks) {
       if (linkedVehicles.has(link.vehicleId)) continue;
       linkedVehicles.add(link.vehicleId);
-      await supabase
-        .from("drivers")
-        .update({ current_vehicle: link.vehiclePlate })
-        .eq("id", link.driverId);
-      driversLinked++;
+      
+      // Update driver's current_vehicle
+      if (link.driverId && link.driverId.length > 10) { // ensure it's a UUID
+        await supabase
+          .from("drivers")
+          .update({ current_vehicle: link.vehiclePlate })
+          .eq("id", link.driverId);
+        
+        // Check if active assignment already exists
+        const { data: existingAssignment } = await supabase
+          .from("driver_vehicle_assignments")
+          .select("id")
+          .eq("driver_id", link.driverId)
+          .eq("vehicle_id", link.vehicleId)
+          .eq("is_active", true)
+          .limit(1)
+          .maybeSingle();
+
+        if (!existingAssignment) {
+          // Close any previous active assignment for this driver
+          await supabase
+            .from("driver_vehicle_assignments")
+            .update({ is_active: false, end_time: new Date().toISOString() })
+            .eq("driver_id", link.driverId)
+            .eq("is_active", true);
+
+          // Create new assignment
+          await supabase
+            .from("driver_vehicle_assignments")
+            .insert({
+              driver_id: link.driverId,
+              driver_name: link.driverName,
+              vehicle_id: link.vehicleId,
+              vehicle_plate: link.vehiclePlate,
+              is_active: true,
+              assignment_code: "AUTO-TELEMETRY",
+            });
+        }
+        driversLinked++;
+      }
     }
 
-    console.log(`[truckscontrol-telemetry] finished: ${messageNodes.length} msgs, ${telemetryUpdated} telemetry, ${journeyEventsCreated} journey, ${alertsCreated} alerts, maxMld=${maxMldReceived}`);
+    // 7. Auto-compliance from journey macros
+    if (complianceEvents.length > 0) {
+      // Group by driver
+      const driverEvents = new Map<string, typeof complianceEvents>();
+      for (const ce of complianceEvents) {
+        const arr = driverEvents.get(ce.driverId) || [];
+        arr.push(ce);
+        driverEvents.set(ce.driverId, arr);
+      }
+
+      for (const [did, events] of driverEvents) {
+        const journeyStarts = events.filter(e => e.eventType === "journey_start");
+        const journeyEnds = events.filter(e => e.eventType === "journey_end");
+        const mealStarts = events.filter(e => e.eventType === "meal_start");
+        
+        // If there's a journey_start, upsert compliance record for today
+        if (journeyStarts.length > 0) {
+          const journeyDate = new Date(journeyStarts[0].timestamp).toISOString().split("T")[0];
+          
+          const complianceData: any = {
+            driver_id: did,
+            driver_name: journeyStarts[0].driverName,
+            journey_date: journeyDate,
+            journey_start: journeyStarts[0].timestamp,
+            source: "telemetry",
+          };
+
+          if (journeyEnds.length > 0) {
+            complianceData.journey_end = journeyEnds[journeyEnds.length - 1].timestamp;
+            // Calculate worked minutes
+            const start = new Date(journeyStarts[0].timestamp).getTime();
+            const end = new Date(journeyEnds[journeyEnds.length - 1].timestamp).getTime();
+            const workedMinutes = Math.round((end - start) / 60000);
+            complianceData.total_worked_minutes = workedMinutes;
+            complianceData.overtime_minutes = Math.max(0, workedMinutes - 480); // 8h = 480min
+            complianceData.is_overtime_compliant = workedMinutes <= 600; // 10h max
+          }
+
+          if (mealStarts.length > 0) {
+            complianceData.break_start = mealStarts[0].timestamp;
+          }
+
+          // Check if record exists for this driver/date
+          const { data: existingCompliance } = await supabase
+            .from("driver_journey_compliance")
+            .select("id")
+            .eq("driver_id", did)
+            .eq("journey_date", journeyDate)
+            .limit(1)
+            .maybeSingle();
+
+          if (existingCompliance) {
+            await supabase
+              .from("driver_journey_compliance")
+              .update(complianceData)
+              .eq("id", existingCompliance.id);
+          } else {
+            await supabase
+              .from("driver_journey_compliance")
+              .insert(complianceData);
+          }
+          complianceUpdated++;
+        }
+      }
+    }
+
+    console.log(`[truckscontrol-telemetry] finished: ${messageNodes.length} msgs, ${telemetryUpdated} tel, ${journeyEventsCreated} journey, ${alertsCreated} alerts, ${behaviorEventsCreated} behavior, ${driversLinked} drivers, ${complianceUpdated} compliance, maxMld=${maxMldReceived}`);
 
     return new Response(JSON.stringify({
       success: true,
@@ -496,9 +801,11 @@ Deno.serve(async (req) => {
       telemetryUpdated,
       alertsCreated,
       journeyEventsCreated,
+      behaviorEventsCreated,
       driversLinked,
+      complianceUpdated,
       maxMld: maxMldReceived,
-      message: `OK: ${messageNodes.length} mensagens processadas. ${telemetryUpdated} veículos atualizados, ${journeyEventsCreated} eventos de jornada, ${alertsCreated} alertas.`,
+      message: `OK: ${messageNodes.length} mensagens. ${telemetryUpdated} veículos, ${journeyEventsCreated} jornada, ${alertsCreated} alertas, ${behaviorEventsCreated} comportamento, ${driversLinked} motoristas vinculados, ${complianceUpdated} compliance.`,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (e) {

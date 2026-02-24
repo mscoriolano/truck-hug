@@ -697,6 +697,78 @@ export type Database = {
         }
         Relationships: []
       }
+      driving_behavior_events: {
+        Row: {
+          battery_level: number | null
+          created_at: string
+          details: Json | null
+          driver_id: string | null
+          driver_name: string | null
+          event_timestamp: string
+          event_type: string
+          id: string
+          latitude: number | null
+          location_name: string | null
+          longitude: number | null
+          rpm: number | null
+          severity: string
+          speed: number | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Insert: {
+          battery_level?: number | null
+          created_at?: string
+          details?: Json | null
+          driver_id?: string | null
+          driver_name?: string | null
+          event_timestamp?: string
+          event_type: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          rpm?: number | null
+          severity?: string
+          speed?: number | null
+          vehicle_id: string
+          vehicle_plate: string
+        }
+        Update: {
+          battery_level?: number | null
+          created_at?: string
+          details?: Json | null
+          driver_id?: string | null
+          driver_name?: string | null
+          event_timestamp?: string
+          event_type?: string
+          id?: string
+          latitude?: number | null
+          location_name?: string | null
+          longitude?: number | null
+          rpm?: number | null
+          severity?: string
+          speed?: number | null
+          vehicle_id?: string
+          vehicle_plate?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driving_behavior_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driving_behavior_events_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expense_categories: {
         Row: {
           created_at: string
@@ -775,6 +847,51 @@ export type Database = {
           updated_at?: string
           vehicle_id?: string
           vehicle_plate?: string
+        }
+        Relationships: []
+      }
+      geofence_zones: {
+        Row: {
+          alert_on_enter: boolean | null
+          alert_on_exit: boolean | null
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          latitude: number
+          longitude: number
+          name: string
+          radius_meters: number
+          updated_at: string
+          zone_type: string
+        }
+        Insert: {
+          alert_on_enter?: boolean | null
+          alert_on_exit?: boolean | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          latitude: number
+          longitude: number
+          name: string
+          radius_meters?: number
+          updated_at?: string
+          zone_type?: string
+        }
+        Update: {
+          alert_on_enter?: boolean | null
+          alert_on_exit?: boolean | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          latitude?: number
+          longitude?: number
+          name?: string
+          radius_meters?: number
+          updated_at?: string
+          zone_type?: string
         }
         Relationships: []
       }
@@ -1850,6 +1967,7 @@ export type Database = {
       }
       vehicle_telemetry: {
         Row: {
+          battery_level: number | null
           created_at: string
           engine_hours: number | null
           events: Json | null
@@ -1863,16 +1981,20 @@ export type Database = {
           ignition_on: boolean | null
           last_mld: number | null
           latitude: number | null
+          location_name: string | null
           longitude: number | null
+          municipality: string | null
           odometer: number | null
           received_at: string
           rpm: number | null
           speed: number | null
+          state: string | null
           truckscontrol_id: string | null
           vehicle_id: string
           vehicle_plate: string
         }
         Insert: {
+          battery_level?: number | null
           created_at?: string
           engine_hours?: number | null
           events?: Json | null
@@ -1886,16 +2008,20 @@ export type Database = {
           ignition_on?: boolean | null
           last_mld?: number | null
           latitude?: number | null
+          location_name?: string | null
           longitude?: number | null
+          municipality?: string | null
           odometer?: number | null
           received_at?: string
           rpm?: number | null
           speed?: number | null
+          state?: string | null
           truckscontrol_id?: string | null
           vehicle_id: string
           vehicle_plate: string
         }
         Update: {
+          battery_level?: number | null
           created_at?: string
           engine_hours?: number | null
           events?: Json | null
@@ -1909,11 +2035,14 @@ export type Database = {
           ignition_on?: boolean | null
           last_mld?: number | null
           latitude?: number | null
+          location_name?: string | null
           longitude?: number | null
+          municipality?: string | null
           odometer?: number | null
           received_at?: string
           rpm?: number | null
           speed?: number | null
+          state?: string | null
           truckscontrol_id?: string | null
           vehicle_id?: string
           vehicle_plate?: string
