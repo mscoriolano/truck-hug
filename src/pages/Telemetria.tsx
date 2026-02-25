@@ -2,16 +2,19 @@ import { useState, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
 import { useVehicleTelemetry, useTelemetryAlerts, useAcknowledgeAlert } from '@/hooks/useTelemetry';
+import { useFuelEntries } from '@/hooks/useFuelEntries';
 import { supabase } from '@/integrations/supabase/client'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MapPin, Activity, Gauge, Fuel, Clock, AlertTriangle, Zap, CheckCircle, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { MapPin, Activity, Gauge, Fuel, Clock, AlertTriangle, Zap, CheckCircle, X, TrendingUp, TrendingDown, Shield, Battery } from 'lucide-react';
 import { DateRangeFilter } from '@/components/ui/DateRangeFilter';
 import { toast } from 'sonner';
 import { startOfWeek, startOfMonth, subMonths, startOfYear, subYears, isAfter, isBefore } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehaviorDashboard';
+import { GeofenceManager } from '@/components/geofence/GeofenceManager';
 
 // Normaliza placas para comparação (remove traços e espaços)
 const normalizePlate = (plate: string | undefined) => {
@@ -59,6 +62,8 @@ export default function Telemetria() {
   const { data: telemetryData } = useVehicleTelemetry();
   const { data: alerts, refetch: refetchAlerts } = useTelemetryAlerts(false); 
   const acknowledgeAlert = useAcknowledgeAlert();
+  const fuelEntriesQuery = useFuelEntries();
+  const fuelEntries = fuelEntriesQuery?.data || [];
   const [fullRegistry, setFullRegistry] = useState<any[]>([]);
 
   // Busca o cadastro completo e loga no console para conferência
@@ -172,23 +177,42 @@ export default function Telemetria() {
     });
   }, [enrichedVehicles, filterStatus, periodo, dateRange, alerts]);
 
-  // --- DADOS CONSUMO ---
+  // --- DADOS CONSUMO REAL (baseado em abastecimentos + odômetro da telemetria) ---
   const consumptionData = useMemo(() => {
     return filteredVehicles.map(v => {
         const target = v.target_consumption; 
-        let actual = v.average_consumption;
+        const plate = normalizePlate(v.vehicle_plate);
         
-        // Simulação de valor real se vier zerado do XML
-        if (!actual || actual === 0) {
-            const variation = (Math.random() * 0.25) - 0.15; 
-            actual = target * (1 + variation);
+        // Busca abastecimentos do veículo ordenados por km
+        const vehicleFuel = fuelEntries
+          .filter(f => normalizePlate(f.vehicle_plate) === plate)
+          .sort((a, b) => a.mileage - b.mileage);
+        
+        let actual = 0;
+        
+        if (vehicleFuel.length >= 2) {
+          // Consumo entre primeiro e último abastecimento: distância / litros
+          const totalDist = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
+          const totalLiters = vehicleFuel.slice(1).reduce((acc, f) => acc + Number(f.liters), 0);
+          if (totalDist > 0 && totalLiters > 0) {
+            actual = totalDist / totalLiters;
+          }
+        } else if (vehicleFuel.length === 1 && v.odometer) {
+          // Fallback: usa odômetro da telemetria - km do abastecimento / litros
+          const dist = (v.odometer || 0) - vehicleFuel[0].mileage;
+          if (dist > 0 && vehicleFuel[0].liters > 0) {
+            actual = dist / Number(vehicleFuel[0].liters);
+          }
         }
 
-        const percentageOfTarget = target > 0 ? (actual / target) * 100 : 0;
-        let color = "#3b82f6"; 
-        if (percentageOfTarget <= 95) color = "#ef4444"; 
-        else if (percentageOfTarget <= 99) color = "#eab308"; 
-        else if (percentageOfTarget <= 105) color = "#22c55e"; 
+        const percentageOfTarget = target > 0 && actual > 0 ? (actual / target) * 100 : 0;
+        let color = "#64748b"; // cinza = sem dados
+        if (actual > 0) {
+          if (percentageOfTarget <= 95) color = "#ef4444"; 
+          else if (percentageOfTarget <= 99) color = "#eab308"; 
+          else if (percentageOfTarget <= 105) color = "#22c55e"; 
+          else color = "#3b82f6";
+        }
 
         return {
             name: v.vehicle_plate,
@@ -198,7 +222,7 @@ export default function Telemetria() {
             color: color
         };
     }).sort((a, b) => b.value - a.value);
-  }, [filteredVehicles]);
+  }, [filteredVehicles, fuelEntries]);
 
   const avgConsumption = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.value, 0) / consumptionData.length : 0;
   const avgTarget = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.target, 0) / consumptionData.length : 0;
@@ -237,7 +261,7 @@ export default function Telemetria() {
         {/* BARRA SUPERIOR */}
         <div className="flex flex-col lg:flex-row justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 text-slate-300 mb-6 gap-4 shadow-lg">
              <div className="flex overflow-x-auto no-scrollbar gap-1 w-full lg:w-auto">
-                {['mapa', 'velocidade', 'forca_g', 'consumo', 'ociosidade', 'alertas'].map(tab => (
+                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas'].map(tab => (
                     <Button key={tab} variant="ghost" onClick={() => setActiveTab(tab)} className={`hover:text-white hover:bg-slate-800 capitalize ${activeTab === tab ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : ''}`}>
                          {tab.replace('_', ' ')}
                     </Button>
@@ -397,6 +421,54 @@ export default function Telemetria() {
                     </CardContent>
                 </Card>
             </div>
+        )}
+
+        {activeTab === 'condução' && (
+          <div className="animate-in fade-in zoom-in-95">
+            <DrivingBehaviorDashboard />
+          </div>
+        )}
+
+        {activeTab === 'geofencing' && (
+          <div className="animate-in fade-in zoom-in-95 space-y-6">
+            <GeofenceManager />
+          </div>
+        )}
+
+        {activeTab === 'bateria' && (
+          <div className="animate-in fade-in zoom-in-95">
+            <Card className="border-slate-800 bg-[#0f172a] text-white">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Battery className="w-5 h-5 text-orange-400" /> Monitoramento de Bateria dos Rastreadores</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredVehicles.map(v => {
+                    const bat = (v as any).battery_level ?? null;
+                    const batColor = bat === null ? 'text-slate-500' : bat >= 25 ? 'text-green-400' : bat >= 22 ? 'text-yellow-400' : 'text-red-400';
+                    const batBg = bat === null ? 'bg-slate-800' : bat >= 25 ? 'bg-green-500/10 border-green-500/20' : bat >= 22 ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-red-500/10 border-red-500/20';
+                    return (
+                      <div key={v.id} className={`p-4 rounded-xl border ${batBg} flex items-center gap-4`}>
+                        <Battery className={`w-8 h-8 ${batColor}`} />
+                        <div className="flex-1">
+                          <p className="font-bold text-white">{v.vehicle_plate}</p>
+                          <p className="text-xs text-slate-400">{(v as any).location_name || v.model || 'S/ localização'}</p>
+                        </div>
+                        <div className={`text-2xl font-bold ${batColor}`}>
+                          {bat !== null ? `${bat}V` : 'N/D'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap gap-4 mt-6 text-xs text-slate-400 justify-center">
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500" /> ≥25V Normal</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500" /> 22-24V Atenção</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500" /> &lt;22V Crítico</div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {(activeTab === 'ociosidade' || activeTab === 'alertas') && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
