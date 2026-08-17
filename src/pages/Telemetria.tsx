@@ -15,6 +15,9 @@ import { startOfWeek, startOfMonth, subMonths, startOfYear, subYears, isAfter, i
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehaviorDashboard';
 import { GeofenceManager } from '@/components/geofence/GeofenceManager';
+import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
+import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
+
 
 // Normaliza placas para comparação (remove traços e espaços)
 const normalizePlate = (plate: string | undefined) => {
