@@ -87,6 +87,8 @@ export default function Telemetria() {
   const [periodo, setPeriodo] = useState('all'); 
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>();
   const [activeTab, setActiveTab] = useState('consumo'); 
+  const [alertsDialogOpen, setAlertsDialogOpen] = useState(false);
+
 
   // --- ESTATÍSTICAS ---
   const stats = useMemo(() => {
