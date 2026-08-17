@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -7,6 +7,7 @@ import {
   Gauge, AlertTriangle, Zap, Clock, Battery, MapPin, 
   TrendingUp, TrendingDown, Shield, Activity 
 } from 'lucide-react';
+import { EventDrilldownDialog } from '@/components/telemetry/EventDrilldownDialog';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
 
 const EVENT_LABELS: Record<string, string> = {
@@ -36,6 +37,11 @@ const SCORE_COLOR = (score: number) => {
 export function DrivingBehaviorDashboard() {
   const { data: events } = useDrivingBehaviorEvents(300);
   const { data: scores } = useDrivingScores();
+  const [drilldown, setDrilldown] = useState<{ title: string; events: typeof events } | null>(null);
+
+  const openDrilldown = (title: string, filter: (e: NonNullable<typeof events>[number]) => boolean) => {
+    setDrilldown({ title, events: (events || []).filter(filter) });
+  };
 
   // Event type distribution
   const eventDistribution = useMemo(() => {
@@ -100,7 +106,7 @@ export function DrivingBehaviorDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => openDrilldown('Todos os Eventos', () => true)}>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <Activity className="w-3 h-3" /> Total Eventos
@@ -111,7 +117,7 @@ export function DrivingBehaviorDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => openDrilldown('Eventos Críticos', (e) => e.severity === 'critical')}>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <AlertTriangle className="w-3 h-3 text-destructive" /> Críticos
@@ -122,7 +128,7 @@ export function DrivingBehaviorDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => openDrilldown('Alertas de Excesso de Velocidade', (e) => e.event_type === 'speeding')}>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <Gauge className="w-3 h-3 text-warning" /> Velocidade
@@ -133,7 +139,7 @@ export function DrivingBehaviorDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => openDrilldown('Alertas de Bateria', (e) => e.event_type === 'low_battery')}>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <Battery className="w-3 h-3 text-orange-400" /> Bateria
@@ -144,7 +150,7 @@ export function DrivingBehaviorDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border cursor-pointer hover:border-primary/50 transition-colors" onClick={() => openDrilldown('Alertas de Geofence', (e) => e.event_type.startsWith('geofence'))}>
           <CardHeader className="pb-2">
             <CardTitle className="text-xs text-muted-foreground uppercase flex items-center gap-1">
               <MapPin className="w-3 h-3 text-purple-400" /> Geofence
@@ -212,7 +218,11 @@ export function DrivingBehaviorDashboard() {
                 </ResponsiveContainer>
                 <div className="space-y-2 flex-1">
                   {eventDistribution.map((item, i) => (
-                    <div key={item.type} className="flex items-center gap-2">
+                    <div
+                      key={item.type}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5"
+                      onClick={() => openDrilldown(item.name, (e) => e.event_type === item.type)}
+                    >
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
                       <span className="text-xs text-muted-foreground flex-1">{item.name}</span>
                       <span className="text-sm font-bold text-foreground">{item.value}</span>
@@ -294,7 +304,11 @@ export function DrivingBehaviorDashboard() {
           {recentEvents.length > 0 ? (
             <div className="space-y-2">
               {recentEvents.map((evt) => (
-                <div key={evt.id} className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background">
+                <div
+                  key={evt.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => openDrilldown(EVENT_LABELS[evt.event_type] || evt.event_type, (e) => e.event_type === evt.event_type)}
+                >
                   <Badge className={`text-[10px] ${SEVERITY_COLORS[evt.severity] || SEVERITY_COLORS.info}`}>
                     {evt.severity === 'critical' ? '🔴' : evt.severity === 'warning' ? '🟡' : '🔵'} {EVENT_LABELS[evt.event_type] || evt.event_type}
                   </Badge>
@@ -320,6 +334,12 @@ export function DrivingBehaviorDashboard() {
           )}
         </CardContent>
       </Card>
+      <EventDrilldownDialog
+        open={!!drilldown}
+        onOpenChange={(o) => !o && setDrilldown(null)}
+        title={drilldown?.title || ''}
+        events={drilldown?.events || []}
+      />
     </div>
   );
 }
