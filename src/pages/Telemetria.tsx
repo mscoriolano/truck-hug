@@ -488,7 +488,45 @@ export default function Telemetria() {
           </div>
         )}
 
-        {(activeTab === 'ociosidade' || activeTab === 'alertas') && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
+        {activeTab === 'alertas' && (
+          <Card className="border-slate-800 bg-[#0f172a] text-white animate-in fade-in zoom-in-95">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" /> Alertas Ativos</CardTitle>
+              <Badge variant="destructive">{alerts?.length || 0}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(alerts?.length || 0) === 0 ? (
+                <p className="text-center text-slate-500 py-10">Nenhum alerta ativo.</p>
+              ) : (
+                alerts!.map(a => (
+                  <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-[#1e293b]">
+                    <Badge variant="outline" className="text-[10px] border-red-900 text-red-400 whitespace-nowrap">{a.alert_type}</Badge>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold">{a.vehicle_plate}{a.driver_name ? ` • ${a.driver_name}` : ''}</p>
+                      <p className="text-sm text-slate-400">{a.title || a.message}</p>
+                      <p className="text-xs text-slate-500">{new Date(a.event_timestamp).toLocaleString('pt-BR')}</p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(a.id)}>
+                      <CheckCircle className="w-4 h-4 mr-1" /> Arquivar
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === 'histórico' && (
+          <div className="animate-in fade-in zoom-in-95">
+            <TelemetryHistoryPanel
+              plates={enrichedVehicles.map(v => v.vehicle_plate).filter(Boolean) as string[]}
+              from={periodo === 'custom' ? dateRange?.from : periodo === 'today' ? new Date(new Date().setHours(0,0,0,0)) : periodo === 'week' ? startOfWeek(new Date()) : periodo === 'month' ? startOfMonth(new Date()) : undefined}
+              to={periodo === 'custom' && dateRange?.to ? new Date(new Date(dateRange.to).setHours(23,59,59,999)) : undefined}
+            />
+          </div>
+        )}
+
+        {activeTab === 'ociosidade' && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
       </div>
     </MainLayout>
   );
