@@ -292,12 +292,24 @@ export default function Telemetria() {
                 { label: 'Ociosidade', val: stats.idle, color: 'text-yellow-500', icon: Clock, filter: 'idle' },
                 { label: 'Alertas', val: stats.alertsCount, color: 'text-red-500', icon: AlertTriangle, filter: 'alerts' },
              ].map((c, i) => (
-                <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => setFilterStatus(c.filter as any)}>
+                <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => {
+                    setFilterStatus(c.filter as any);
+                    if (c.filter === 'alerts') setAlertsDialogOpen(true);
+                }}>
                     <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase flex items-center gap-2"><c.icon className={`w-3 h-3 ${c.color}`}/> {c.label}</CardTitle></CardHeader>
-                    <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div></CardContent>
+                    <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div>{c.filter === 'alerts' && <p className="text-[10px] text-slate-500 mt-1">Clique para ver a lista</p>}</CardContent>
                 </Card>
              ))}
         </div>
+
+        <AlertsDrilldownDialog
+          open={alertsDialogOpen}
+          onOpenChange={setAlertsDialogOpen}
+          title="Alertas de Telemetria"
+          alerts={alerts || []}
+          onAcknowledge={handleAcknowledge}
+        />
+
 
         {activeTab === 'mapa' && <div className="animate-in fade-in zoom-in-95"><VehicleMap /></div>}
 
