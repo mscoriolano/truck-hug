@@ -15,6 +15,9 @@ import { startOfWeek, startOfMonth, subMonths, startOfYear, subYears, isAfter, i
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehaviorDashboard';
 import { GeofenceManager } from '@/components/geofence/GeofenceManager';
+import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
+import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
+
 
 // Normaliza placas para comparação (remove traços e espaços)
 const normalizePlate = (plate: string | undefined) => {
@@ -84,6 +87,8 @@ export default function Telemetria() {
   const [periodo, setPeriodo] = useState('all'); 
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>();
   const [activeTab, setActiveTab] = useState('consumo'); 
+  const [alertsDialogOpen, setAlertsDialogOpen] = useState(false);
+
 
   // --- ESTATÍSTICAS ---
   const stats = useMemo(() => {
@@ -261,7 +266,7 @@ export default function Telemetria() {
         {/* BARRA SUPERIOR */}
         <div className="flex flex-col lg:flex-row justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 text-slate-300 mb-6 gap-4 shadow-lg">
              <div className="flex overflow-x-auto no-scrollbar gap-1 w-full lg:w-auto">
-                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas'].map(tab => (
+                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas', 'histórico'].map(tab => (
                     <Button key={tab} variant="ghost" onClick={() => setActiveTab(tab)} className={`hover:text-white hover:bg-slate-800 capitalize ${activeTab === tab ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : ''}`}>
                          {tab.replace('_', ' ')}
                     </Button>
@@ -292,12 +297,24 @@ export default function Telemetria() {
                 { label: 'Ociosidade', val: stats.idle, color: 'text-yellow-500', icon: Clock, filter: 'idle' },
                 { label: 'Alertas', val: stats.alertsCount, color: 'text-red-500', icon: AlertTriangle, filter: 'alerts' },
              ].map((c, i) => (
-                <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => setFilterStatus(c.filter as any)}>
+                <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => {
+                    setFilterStatus(c.filter as any);
+                    if (c.filter === 'alerts') setAlertsDialogOpen(true);
+                }}>
                     <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase flex items-center gap-2"><c.icon className={`w-3 h-3 ${c.color}`}/> {c.label}</CardTitle></CardHeader>
-                    <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div></CardContent>
+                    <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div>{c.filter === 'alerts' && <p className="text-[10px] text-slate-500 mt-1">Clique para ver a lista</p>}</CardContent>
                 </Card>
              ))}
         </div>
+
+        <AlertsDrilldownDialog
+          open={alertsDialogOpen}
+          onOpenChange={setAlertsDialogOpen}
+          title="Alertas de Telemetria"
+          alerts={alerts || []}
+          onAcknowledge={handleAcknowledge}
+        />
+
 
         {activeTab === 'mapa' && <div className="animate-in fade-in zoom-in-95"><VehicleMap /></div>}
 
@@ -471,7 +488,45 @@ export default function Telemetria() {
           </div>
         )}
 
-        {(activeTab === 'ociosidade' || activeTab === 'alertas') && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
+        {activeTab === 'alertas' && (
+          <Card className="border-slate-800 bg-[#0f172a] text-white animate-in fade-in zoom-in-95">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" /> Alertas Ativos</CardTitle>
+              <Badge variant="destructive">{alerts?.length || 0}</Badge>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(alerts?.length || 0) === 0 ? (
+                <p className="text-center text-slate-500 py-10">Nenhum alerta ativo.</p>
+              ) : (
+                alerts!.map(a => (
+                  <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-800 bg-[#1e293b]">
+                    <Badge variant="outline" className="text-[10px] border-red-900 text-red-400 whitespace-nowrap">{a.alert_type}</Badge>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold">{a.vehicle_plate}{a.driver_name ? ` • ${a.driver_name}` : ''}</p>
+                      <p className="text-sm text-slate-400">{a.title || a.message}</p>
+                      <p className="text-xs text-slate-500">{new Date(a.event_timestamp).toLocaleString('pt-BR')}</p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(a.id)}>
+                      <CheckCircle className="w-4 h-4 mr-1" /> Arquivar
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === 'histórico' && (
+          <div className="animate-in fade-in zoom-in-95">
+            <TelemetryHistoryPanel
+              plates={enrichedVehicles.map(v => v.vehicle_plate).filter(Boolean) as string[]}
+              from={periodo === 'custom' ? dateRange?.from : periodo === 'today' ? new Date(new Date().setHours(0,0,0,0)) : periodo === 'week' ? startOfWeek(new Date()) : periodo === 'month' ? startOfMonth(new Date()) : undefined}
+              to={periodo === 'custom' && dateRange?.to ? new Date(new Date(dateRange.to).setHours(23,59,59,999)) : undefined}
+            />
+          </div>
+        )}
+
+        {activeTab === 'ociosidade' && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
       </div>
     </MainLayout>
   );
