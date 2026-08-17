@@ -266,7 +266,7 @@ export default function Telemetria() {
         {/* BARRA SUPERIOR */}
         <div className="flex flex-col lg:flex-row justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 text-slate-300 mb-6 gap-4 shadow-lg">
              <div className="flex overflow-x-auto no-scrollbar gap-1 w-full lg:w-auto">
-                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas'].map(tab => (
+                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas', 'histórico'].map(tab => (
                     <Button key={tab} variant="ghost" onClick={() => setActiveTab(tab)} className={`hover:text-white hover:bg-slate-800 capitalize ${activeTab === tab ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : ''}`}>
                          {tab.replace('_', ' ')}
                     </Button>
