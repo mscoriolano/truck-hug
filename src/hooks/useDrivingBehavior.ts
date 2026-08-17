@@ -46,15 +46,23 @@ export interface DrivingScore {
   criticalEvents: number;
 }
 
-export const useDrivingBehaviorEvents = (limit = 200) => {
+export const useDrivingBehaviorEvents = (
+  limitOrOptions: number | { limit?: number; from?: Date; to?: Date } = 200
+) => {
+  const opts = typeof limitOrOptions === 'number' ? { limit: limitOrOptions } : limitOrOptions;
+  const { limit = 200, from, to } = opts;
+
   return useQuery({
-    queryKey: ['driving_behavior_events', limit],
+    queryKey: ['driving_behavior_events', limit, from?.toISOString(), to?.toISOString()],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('driving_behavior_events')
         .select('*')
         .order('event_timestamp', { ascending: false })
         .limit(limit);
+      if (from) query = query.gte('event_timestamp', from.toISOString());
+      if (to) query = query.lte('event_timestamp', to.toISOString());
+      const { data, error } = await query;
       if (error) throw error;
       return data as DrivingBehaviorEvent[];
     },
