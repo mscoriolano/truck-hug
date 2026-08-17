@@ -177,6 +177,37 @@ export const useTelemetryHistory = (vehicleId?: string, limit = 100) => {
   });
 };
 
+// Hook para o log de histórico de telemetria (com filtros de placa e período)
+export const useTelemetryHistoryLog = (options?: {
+  plate?: string;
+  from?: Date;
+  to?: Date;
+  limit?: number;
+}) => {
+  const { plate, from, to, limit = 500 } = options || {};
+
+  return useQuery({
+    queryKey: ['telemetry_history', 'log', plate, from?.toISOString(), to?.toISOString(), limit],
+    queryFn: async () => {
+      let query = supabase
+        .from('telemetry_history')
+        .select('*')
+        .order('gps_timestamp', { ascending: false, nullsFirst: false })
+        .limit(limit);
+
+      if (plate && plate !== 'all') query = query.eq('vehicle_plate', plate);
+      if (from) query = query.gte('created_at', from.toISOString());
+      if (to) query = query.lte('created_at', to.toISOString());
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as TelemetryHistory[];
+    },
+    refetchInterval: 60000,
+  });
+};
+
+
 // Hook para alertas de telemetria
 export const useTelemetryAlerts = (acknowledged?: boolean) => {
   return useQuery({
