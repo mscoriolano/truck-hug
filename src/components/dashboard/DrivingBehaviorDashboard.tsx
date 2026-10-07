@@ -34,8 +34,8 @@ const SCORE_COLOR = (score: number) => {
   return '#ef4444';
 };
 
-export function DrivingBehaviorDashboard() {
-  const { data: events } = useDrivingBehaviorEvents(300);
+export function DrivingBehaviorDashboard({ from, to }: { from?: Date; to?: Date } = {}) {
+  const { data: events } = useDrivingBehaviorEvents({ limit: 10000, from, to });
   const { data: scores } = useDrivingScores();
   const [drilldown, setDrilldown] = useState<{ title: string; events: typeof events } | null>(null);
 

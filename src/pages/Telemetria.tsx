@@ -442,7 +442,10 @@ export default function Telemetria() {
 
         {activeTab === 'condução' && (
           <div className="animate-in fade-in zoom-in-95">
-            <DrivingBehaviorDashboard />
+            <DrivingBehaviorDashboard
+              from={periodo === 'custom' ? dateRange?.from : periodo === 'today' ? new Date(new Date().setHours(0,0,0,0)) : periodo === 'week' ? startOfWeek(new Date()) : periodo === 'month' ? startOfMonth(new Date()) : undefined}
+              to={periodo === 'custom' && dateRange?.to ? new Date(new Date(dateRange.to).setHours(23,59,59,999)) : undefined}
+            />
           </div>
         )}
 

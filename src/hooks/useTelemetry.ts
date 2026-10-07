@@ -189,19 +189,77 @@ export const useTelemetryHistoryLog = (options?: {
   return useQuery({
     queryKey: ['telemetry_history', 'log', plate, from?.toISOString(), to?.toISOString(), limit],
     queryFn: async () => {
-      let query = supabase
+      let q1 = supabase
         .from('telemetry_history')
         .select('*')
         .order('gps_timestamp', { ascending: false, nullsFirst: false })
         .limit(limit);
+      let q2 = supabase
+        .from('driving_behavior_events')
+        .select('*')
+        .order('event_timestamp', { ascending: false })
+        .limit(limit);
+      let q3 = supabase
+        .from('vehicle_telemetry')
+        .select('*')
+        .order('gps_timestamp', { ascending: false, nullsFirst: false })
+        .limit(limit);
 
-      if (plate && plate !== 'all') query = query.eq('vehicle_plate', plate);
-      if (from) query = query.gte('created_at', from.toISOString());
-      if (to) query = query.lte('created_at', to.toISOString());
+      if (plate && plate !== 'all') {
+        q1 = q1.eq('vehicle_plate', plate);
+        q2 = q2.eq('vehicle_plate', plate);
+        q3 = q3.eq('vehicle_plate', plate);
+      }
+      if (from) {
+        q1 = q1.gte('gps_timestamp', from.toISOString());
+        q2 = q2.gte('event_timestamp', from.toISOString());
+        q3 = q3.gte('gps_timestamp', from.toISOString());
+      }
+      if (to) {
+        q1 = q1.lte('gps_timestamp', to.toISOString());
+        q2 = q2.lte('event_timestamp', to.toISOString());
+        q3 = q3.lte('gps_timestamp', to.toISOString());
+      }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as TelemetryHistory[];
+      const [r1, r2, r3] = await Promise.all([q1, q2, q3]);
+      if (r1.error) throw r1.error;
+      if (r2.error) throw r2.error;
+
+      const hist = (r1.data || []) as any[];
+      const evts = ((r2.data || []) as any[]).map((e) => ({
+        id: `evt-${e.id}`,
+        vehicle_id: e.vehicle_id,
+        vehicle_plate: e.vehicle_plate,
+        driver_id: e.driver_id,
+        driver_name: e.driver_name,
+        latitude: e.latitude,
+        longitude: e.longitude,
+        speed: e.speed ?? 0,
+        heading: 0,
+        ignition_on: (e.rpm ?? 0) > 0 || (e.speed ?? 0) > 0,
+        g_force_x: 0, g_force_y: 0, g_force_z: 0,
+        event_type: e.event_type,
+        event_severity: e.severity,
+        gps_timestamp: e.event_timestamp,
+        created_at: e.created_at,
+      }));
+      const pos = ((r3.data || []) as any[]).map((t) => ({
+        id: `pos-${t.id}`,
+        vehicle_id: t.vehicle_id,
+        vehicle_plate: t.vehicle_plate,
+        latitude: t.latitude,
+        longitude: t.longitude,
+        speed: t.speed ?? 0,
+        heading: t.heading ?? 0,
+        ignition_on: !!t.ignition_on,
+        g_force_x: t.g_force_x ?? 0, g_force_y: t.g_force_y ?? 0, g_force_z: t.g_force_z ?? 0,
+        event_type: 'posição',
+        gps_timestamp: t.gps_timestamp || t.received_at,
+        created_at: t.created_at,
+      }));
+
+      const ts = (r: any) => new Date(r.gps_timestamp || r.created_at).getTime();
+      return [...hist, ...evts, ...pos].sort((a, b) => ts(b) - ts(a)).slice(0, limit) as TelemetryHistory[];
     },
     refetchInterval: 60000,
   });
