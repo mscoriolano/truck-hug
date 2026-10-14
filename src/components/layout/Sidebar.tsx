@@ -20,6 +20,7 @@ import {
   Radio,
   Target,
   PieChart
+  FileBarChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ const navItems = [
   { icon: PieChart, label: 'Dashboard Executivo', path: '/dashboard-executivo' },
   { icon: Clock, label: 'Jornada', path: '/jornada' },
   { icon: Radio, label: 'Telemetria', path: '/telemetria' },
+  { icon: FileBarChart, label: 'Relatórios', path: '/relatorios' },
   { icon: Users, label: 'Motoristas', path: '/motoristas' },
   { icon: Truck, label: 'Veículos', path: '/veiculos' },
   { icon: Wrench, label: 'Manutenções', path: '/manutencoes' },
