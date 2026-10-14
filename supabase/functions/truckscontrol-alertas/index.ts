@@ -92,22 +92,28 @@ serve(async (req) => {
     console.log("[truckscontrol-alertas] start", { ts: new Date().toISOString() });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const timeout = setTimeout(() => controller.abort(), 90_000);
 
-    let response: Response;
+    let responseText = "";
     try {
-      response = await fetch("https://webservice.newrastreamentoonline.com.br", {
+      const response = await fetch("https://webservice.newrastreamentoonline.com.br", {
         method: "POST",
         headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
         body: xmlRequest,
         signal: controller.signal,
       });
+      const bytes = await response.arrayBuffer();
+      responseText = decodeTrucksControlBody(new Uint8Array(bytes));
+    } catch (e) {
+      const aborted = (e as Error)?.name === "AbortError";
+      console.error("[truckscontrol-alertas] fetch failed", String(e));
+      return new Response(JSON.stringify({
+        success: false,
+        error: aborted ? "TrucksControl não respondeu em 90s (timeout)" : String(e),
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } finally {
       clearTimeout(timeout);
     }
-
-    const bytes = await response.arrayBuffer();
-    const responseText = decodeTrucksControlBody(new Uint8Array(bytes));
 
     if (responseText.includes("<erro>")) {
       const erro = parseXmlValue(responseText, "erro") || "Erro desconhecido";
