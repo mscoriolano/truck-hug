@@ -19,7 +19,7 @@ import {
   DollarSign,
   Radio,
   Target,
-  PieChart
+  PieChart,
   FileBarChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
