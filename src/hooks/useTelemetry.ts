@@ -403,6 +403,12 @@ export const useSyncTelemetry = () => {
       });
       
       if (error) throw error;
+      // Alertas gerados pelo rastreador (Inércia, Aceleração Brusca etc.)
+      try {
+        await supabase.functions.invoke('truckscontrol-alertas', { body: {} });
+      } catch (e) {
+        console.warn('Falha ao importar alertas do rastreador', e);
+      }
       return data;
     },
     onSuccess: (data) => {

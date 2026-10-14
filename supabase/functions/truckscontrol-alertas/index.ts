@@ -170,27 +170,40 @@ serve(async (req) => {
         continue;
       }
 
-      // Determinar severidade
-      let severity = "info";
-      if (tipoAlerta?.toLowerCase().includes("critic") || descricao?.toLowerCase().includes("critic")) {
-        severity = "critical";
-      } else if (tipoAlerta?.toLowerCase().includes("warn") || tipoAlerta?.toLowerCase().includes("aten")) {
-        severity = "warning";
+      const desc = (descricao || `Alerta rastreador #${tdeID || alsID}`).trim();
+      const low = (desc + " " + (tipoAlerta || "")).toLowerCase();
+      let severity = "warning";
+      if (low.includes("critic") || low.includes("pânico") || low.includes("panico") || low.includes("emerg") || low.includes("viola")) severity = "critical";
+      else if (low.includes("info")) severity = "info";
+
+      let ts = new Date().toISOString();
+      if (dtInc) {
+        const m = dtInc.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+        if (m) ts = new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] || "00"}-03:00`).toISOString();
+        else if (!isNaN(Date.parse(dtInc))) ts = new Date(dtInc).toISOString();
       }
 
-      const { error: insertError } = await supabase.from("alerts").insert({
-        type: "truckscontrol",
+      const marker = `[alsID:${alsID || `${veiID}-${tdeID}-${dtInc}`}]`;
+      const { data: existing } = await supabase
+        .from("telemetry_alerts")
+        .select("id")
+        .eq("vehicle_id", vehicle.id)
+        .like("message", `%${marker}%`)
+        .limit(1);
+      if (existing && existing.length) continue;
+
+      const { error: insertError } = await supabase.from("telemetry_alerts").insert({
+        vehicle_id: vehicle.id,
+        vehicle_plate: vehicle.plate,
+        alert_type: "tracker_alert",
         severity,
-        title: descricao || `Alerta TrucksControl #${tdeID || alsID}`,
-        message: `Alerta de software ID ${alsID} para veículo ${vehicle.plate} (veiID: ${veiID})`,
-        related_id: vehicle.id,
-        timestamp: dtInc || new Date().toISOString(),
+        title: desc,
+        message: `${desc} — gerado pelo rastreador ${marker}`,
+        event_timestamp: ts,
       });
-      
-      if (!insertError) {
-        alertasCreated++;
-        console.log(`[truckscontrol-alertas] Alerta criado: ${vehicle.plate} - ${descricao || alsID}`);
-      }
+
+      if (!insertError) alertasCreated++;
+      else console.error("[truckscontrol-alertas] insert error", insertError.message);
     }
 
     console.log("[truckscontrol-alertas] finished", { 
