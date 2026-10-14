@@ -217,6 +217,7 @@ export function TrucksControlSync() {
             debug: debugMode,
           },
         }),
+        supabase.functions.invoke('truckscontrol-alertas', { body: {} }),
       ] as const;
 
       // Em modo debug, dispara também as demais requisições para você ver request/response em logs

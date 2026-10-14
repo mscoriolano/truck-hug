@@ -21,6 +21,7 @@ import Guia from "./pages/Guia";
 import PortalMotorista from "./pages/PortalMotorista";
 import GestaoFinanceira from "./pages/GestaoFinanceira";
 import Telemetria from "./pages/Telemetria";
+import Relatorios from "./pages/Relatorios";
 import Metas from "./pages/Metas";
 import DashboardExecutivo from "./pages/DashboardExecutivo";
 import InstallApp from "./pages/InstallApp";
@@ -57,6 +58,7 @@ const App = () => (
               <Route path="/guia" element={<ProtectedRoute><Guia /></ProtectedRoute>} />
               <Route path="/portal-motorista" element={<ProtectedRoute><PortalMotorista /></ProtectedRoute>} />
               <Route path="/gestao-financeira" element={<ProtectedRoute><GestaoFinanceira /></ProtectedRoute>} />
+              <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
               <Route path="/telemetria" element={<ProtectedRoute><Telemetria /></ProtectedRoute>} />
               <Route path="/metas" element={<ProtectedRoute><Metas /></ProtectedRoute>} />
               <Route path="/dashboard-executivo" element={<ProtectedRoute><DashboardExecutivo /></ProtectedRoute>} />
