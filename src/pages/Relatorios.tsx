@@ -222,12 +222,8 @@ export default function Relatorios() {
     );
 
   return (
-    <MainLayout>
+    <MainLayout title="Relatórios de Telemetria" subtitle="Alertas do rastreador, condução, viagens e consumo para tomada de decisão">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">Relatórios de Telemetria</h1>
-          <p className="text-muted-foreground">Alertas do rastreador, condução, viagens e consumo para tomada de decisão.</p>
-        </div>
 
         <Card>
           <CardContent className="pt-6 flex flex-wrap items-end gap-4">
