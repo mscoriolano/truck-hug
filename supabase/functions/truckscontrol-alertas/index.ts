@@ -92,24 +92,35 @@ serve(async (req) => {
     console.log("[truckscontrol-alertas] start", { ts: new Date().toISOString() });
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 90_000);
+    let timeout: number | undefined;
+    const hardTimeout = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        const err = new Error("timeout");
+        err.name = "AbortError";
+        reject(err);
+      }, 45_000);
+    });
 
     let responseText = "";
     try {
-      const response = await fetch("https://webservice.newrastreamentoonline.com.br", {
-        method: "POST",
-        headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
-        body: xmlRequest,
-        signal: controller.signal,
-      });
-      const bytes = await response.arrayBuffer();
-      responseText = decodeTrucksControlBody(new Uint8Array(bytes));
+      const work = (async () => {
+        const response = await fetch("https://webservice.newrastreamentoonline.com.br", {
+          method: "POST",
+          headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
+          body: xmlRequest,
+          signal: controller.signal,
+        });
+        return new Uint8Array(await response.arrayBuffer());
+      })();
+      const bytes = await Promise.race([work, hardTimeout]);
+      responseText = decodeTrucksControlBody(bytes);
     } catch (e) {
       const aborted = (e as Error)?.name === "AbortError";
       console.error("[truckscontrol-alertas] fetch failed", String(e));
       return new Response(JSON.stringify({
         success: false,
-        error: aborted ? "TrucksControl não respondeu em 90s (timeout)" : String(e),
+        error: aborted ? "TrucksControl não respondeu em 45s (timeout)" : String(e),
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     } finally {
       clearTimeout(timeout);
