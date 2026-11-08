@@ -110,7 +110,7 @@ export function OnboardFuelConsumption({ plates }: { plates: string[] }) {
     <div className="space-y-6">
       <Card className="border-slate-800 bg-[#0f172a] text-white">
         <CardContent className="pt-6 flex flex-wrap gap-3 items-center">
-          <DateRangeFilter value={range} onChange={setRange as any} />
+          <DateRangeFilter date={range} onDateChange={setRange} />
           <Select value={plate} onValueChange={setPlate}>
             <SelectTrigger className="w-[160px]"><SelectValue placeholder="Placa" /></SelectTrigger>
             <SelectContent>
