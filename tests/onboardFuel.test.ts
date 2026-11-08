@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onboardConsumptionAvailability, measuredFuelEfficiency } from './onboardFuel';
+import { onboardConsumptionAvailability, measuredFuelEfficiency } from '../src/lib/onboardFuel';
 
 describe('Onboard consumption source requirements', () => {
   test('missing measured fuel remains unavailable, never an estimate or zero', () => {
