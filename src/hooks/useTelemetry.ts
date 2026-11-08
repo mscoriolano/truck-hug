@@ -404,11 +404,14 @@ export const useSyncTelemetry = () => {
       
       if (error) throw error;
       // Alertas gerados pelo rastreador (Inércia, Aceleração Brusca etc.)
-      try {
-        await supabase.functions.invoke('truckscontrol-alertas', { body: {} });
-      } catch (e) {
-        console.warn('Falha ao importar alertas do rastreador', e);
-      }
+      // Não bloqueia a sincronização principal: roda em segundo plano
+      supabase.functions
+        .invoke('truckscontrol-alertas', { body: {} })
+        .then(({ error: alertErr }) => {
+          if (alertErr) console.warn('Falha ao importar alertas do rastreador', alertErr);
+          queryClient.invalidateQueries({ queryKey: ['telemetry_alerts'] });
+        })
+        .catch((e) => console.warn('Falha ao importar alertas do rastreador', e));
       return data;
     },
     onSuccess: (data) => {
