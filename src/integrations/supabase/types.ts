@@ -1885,6 +1885,7 @@ export type Database = {
           driver_id: string | null
           driver_name: string | null
           fuel_level: number | null
+          fuel_used_total: number | null
           g_force_x: number | null
           g_force_y: number | null
           g_force_z: number | null
@@ -1892,7 +1893,9 @@ export type Database = {
           harsh_braking: boolean | null
           harsh_cornering: boolean | null
           id: string
+          ignition_on: boolean | null
           odometer: number | null
+          onboard_consumption_kml: number | null
           raw_data: Json | null
           rpm: number | null
           rpm_violation: boolean | null
@@ -1908,6 +1911,7 @@ export type Database = {
           driver_id?: string | null
           driver_name?: string | null
           fuel_level?: number | null
+          fuel_used_total?: number | null
           g_force_x?: number | null
           g_force_y?: number | null
           g_force_z?: number | null
@@ -1915,7 +1919,9 @@ export type Database = {
           harsh_braking?: boolean | null
           harsh_cornering?: boolean | null
           id?: string
+          ignition_on?: boolean | null
           odometer?: number | null
+          onboard_consumption_kml?: number | null
           raw_data?: Json | null
           rpm?: number | null
           rpm_violation?: boolean | null
@@ -1931,6 +1937,7 @@ export type Database = {
           driver_id?: string | null
           driver_name?: string | null
           fuel_level?: number | null
+          fuel_used_total?: number | null
           g_force_x?: number | null
           g_force_y?: number | null
           g_force_z?: number | null
@@ -1938,7 +1945,9 @@ export type Database = {
           harsh_braking?: boolean | null
           harsh_cornering?: boolean | null
           id?: string
+          ignition_on?: boolean | null
           odometer?: number | null
+          onboard_consumption_kml?: number | null
           raw_data?: Json | null
           rpm?: number | null
           rpm_violation?: boolean | null
