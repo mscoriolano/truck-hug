@@ -1,7 +1,6 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { strFromU8 } from "https://esm.sh/fflate@0.8.2";
-import pako from "https://esm.sh/pako@2.1.0";
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { strFromU8 } from "npm:fflate@0.8.2";
+import pako from "npm:pako@2.1.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,7 +63,7 @@ function decodeTrucksControlBody(bytes: Uint8Array): string {
   return strFromU8(bytes);
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -143,9 +142,37 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const alertaNodes = parseXmlArray(responseText, "AlertasSoftware") || parseXmlArray(responseText, "Acessorio");
+    let alertaNodes = parseXmlArray(responseText, "AlertasSoftware");
+    if (!alertaNodes.length) alertaNodes = parseXmlArray(responseText, "Acessorio");
     let alertasCreated = 0;
     let vehiclesNotFound = 0;
+
+    // Pré-carrega veículos e telemetria uma única vez (evita N consultas por alerta)
+    const [{ data: vehRows }, { data: telRows }] = await Promise.all([
+      supabase.from("vehicles").select("id, plate"),
+      supabase.from("vehicle_telemetry").select("vehicle_id, vehicle_plate, truckscontrol_id"),
+    ]);
+    const byPlate = new Map<string, { id: string; plate: string }>();
+    for (const v of vehRows || []) if (v.plate) byPlate.set(String(v.plate).toUpperCase(), v as any);
+    const byVeiID = new Map<string, { id: string; plate: string }>();
+    for (const t of telRows || []) {
+      if (t.truckscontrol_id && t.vehicle_id) byVeiID.set(String(t.truckscontrol_id), { id: t.vehicle_id, plate: t.vehicle_plate });
+    }
+
+    // Marcadores já importados (últimos 30 dias)
+    const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+    const { data: existingRows } = await supabase
+      .from("telemetry_alerts")
+      .select("message")
+      .eq("alert_type", "tracker_alert")
+      .gte("created_at", since)
+      .limit(10000);
+    const existingMarkers = new Set<string>();
+    for (const r of existingRows || []) {
+      const m = String(r.message || "").match(/\[alsID:[^\]]+\]/);
+      if (m) existingMarkers.add(m[0]);
+    }
+    const toInsert: Record<string, unknown>[] = [];
 
     for (const alertaXml of alertaNodes) {
       const alsID = parseXmlValue(alertaXml, "alsID");
@@ -156,30 +183,8 @@ serve(async (req) => {
       const descricao = parseXmlValue(alertaXml, "descricao") || parseXmlValue(alertaXml, "desc");
       const tipoAlerta = parseXmlValue(alertaXml, "tipoAlerta") || parseXmlValue(alertaXml, "tipo");
 
-      // CORREÇÃO: Buscar veículo com filtro específico (placa ou veiID)
-      let vehicle = null;
-      
-      if (placa) {
-        const { data } = await supabase
-          .from("vehicles")
-          .select("id, plate")
-          .eq("plate", placa)
-          .maybeSingle();
-        vehicle = data;
-      }
-      
-      // Se não encontrou por placa, tentar buscar por truckscontrol_id na telemetria
-      if (!vehicle && veiID) {
-        const { data: telemetry } = await supabase
-          .from("vehicle_telemetry")
-          .select("vehicle_id, vehicle_plate")
-          .eq("truckscontrol_id", veiID)
-          .maybeSingle();
-        
-        if (telemetry) {
-          vehicle = { id: telemetry.vehicle_id, plate: telemetry.vehicle_plate };
-        }
-      }
+      let vehicle = placa ? byPlate.get(placa.toUpperCase()) || null : null;
+      if (!vehicle && veiID) vehicle = byVeiID.get(veiID) || null;
 
       if (!vehicle) {
         vehiclesNotFound++;
@@ -201,15 +206,10 @@ serve(async (req) => {
       }
 
       const marker = `[alsID:${alsID || `${veiID}-${tdeID}-${dtInc}`}]`;
-      const { data: existing } = await supabase
-        .from("telemetry_alerts")
-        .select("id")
-        .eq("vehicle_id", vehicle.id)
-        .like("message", `%${marker}%`)
-        .limit(1);
-      if (existing && existing.length) continue;
+      if (existingMarkers.has(marker)) continue;
+      existingMarkers.add(marker);
 
-      const { error: insertError } = await supabase.from("telemetry_alerts").insert({
+      toInsert.push({
         vehicle_id: vehicle.id,
         vehicle_plate: vehicle.plate,
         alert_type: "tracker_alert",
@@ -218,8 +218,12 @@ serve(async (req) => {
         message: `${desc} — gerado pelo rastreador ${marker}`,
         event_timestamp: ts,
       });
+    }
 
-      if (!insertError) alertasCreated++;
+    for (let b = 0; b < toInsert.length; b += 500) {
+      const chunk = toInsert.slice(b, b + 500);
+      const { error: insertError } = await supabase.from("telemetry_alerts").insert(chunk);
+      if (!insertError) alertasCreated += chunk.length;
       else console.error("[truckscontrol-alertas] insert error", insertError.message);
     }
 
