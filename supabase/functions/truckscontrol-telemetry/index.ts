@@ -285,6 +285,7 @@ Deno.serve(async (req) => {
     const journeyEvents: any[] = [];
     const alerts: any[] = [];
     const behaviorEvents: any[] = [];
+    const canRows: any[] = [];
     const vehicleMileageUpdates: { id: string; mileage: number }[] = [];
     const driverVehicleLinks: { driverId: string; driverName: string; vehicleId: string; vehiclePlate: string }[] = [];
     // Track journey starts/ends for compliance
@@ -370,6 +371,43 @@ Deno.serve(async (req) => {
           state: uf || null,
           received_at: new Date().toISOString(),
         });
+      }
+
+      // ============ Onboard computer snapshot ============
+      {
+        const tags: Record<string, string> = {};
+        const leafRe = /<([a-zA-Z][\w]*)(?: [^>]*)?>([^<]*)<\/\1>/g;
+        let m;
+        while ((m = leafRe.exec(msgXml)) !== null) tags[m[1]] = m[2].trim();
+        const pick = (re: RegExp) => {
+          for (const [k, v] of Object.entries(tags)) {
+            if (re.test(k)) {
+              const n = parseFloat(String(v).replace(",", "."));
+              if (!isNaN(n) && n > 0) return { key: k, value: n };
+            }
+          }
+          return null;
+        };
+        // Total fuel used counter from the ECU (liters)
+        const fuelTotal = pick(/^(ltT|ltTot|ltTotal|ltCons|consTot|consumoTotal|combTotal|cmbTot|fuelUsed|totalFuel|tfu|ctl)$/i);
+        // Average km/L reported by the onboard computer
+        const onboardKml = pick(/^(kml|kmL|kmLt|kmPorLitro|mediaCons|consMedio|consumoMedio|consumo|cons|fuelEconomy)$/i);
+        if (fuelTotal || onboardKml || rpm || odm > 0) {
+          canRows.push({
+            vehicle_id: vehicle.id,
+            vehicle_plate: vehicle.plate,
+            driver_id: driverId,
+            driver_name: driverName,
+            data_timestamp: dt || new Date().toISOString(),
+            rpm,
+            speed: vel,
+            odometer: odm > 0 ? odm : null,
+            ignition_on: ignition,
+            fuel_used_total: fuelTotal?.value ?? null,
+            onboard_consumption_kml: onboardKml?.value ?? null,
+            raw_data: { ...tags, _fuelTag: fuelTotal?.key, _kmlTag: onboardKml?.key, senha: undefined },
+          });
+        }
       }
 
       // ============ Mileage ============
@@ -676,6 +714,14 @@ Deno.serve(async (req) => {
           const { error: bevtErr } = await supabase.from("driving_behavior_events").insert(evt);
           if (!bevtErr) behaviorEventsCreated++;
         }
+      }
+    }
+
+    // 5b. Onboard computer (CAN) readings — fuel counter / onboard km/L, never estimated
+    if (canRows.length > 0) {
+      for (let i = 0; i < canRows.length; i += 500) {
+        const { error: canErr } = await supabase.from("vehicle_can_data").insert(canRows.slice(i, i + 500));
+        if (canErr) console.error("[truckscontrol-telemetry] can insert", canErr.message);
       }
     }
 
