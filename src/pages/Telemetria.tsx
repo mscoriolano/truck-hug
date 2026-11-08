@@ -16,6 +16,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehaviorDashboard';
 import { GeofenceManager } from '@/components/geofence/GeofenceManager';
 import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
+import { OnboardFuelConsumption } from '@/components/telemetry/OnboardFuelConsumption';
 import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
 
 
@@ -405,39 +406,7 @@ export default function Telemetria() {
         )}
 
         {activeTab === 'consumo' && (
-            <div className="space-y-6 animate-in fade-in zoom-in-95">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgConsumption.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média Real (km/L)</p></CardContent></Card>
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgTarget.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média das Metas</p></CardContent></Card>
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className={`text-3xl font-bold flex items-center justify-center gap-1 ${avgConsumption >= avgTarget ? 'text-green-400' : 'text-red-400'}`}><TrendingUp className="w-4 h-4"/> {avgTarget > 0 ? (((avgConsumption - avgTarget) / avgTarget) * 100).toFixed(1) : 0}%</div><p className="text-xs text-slate-400 uppercase mt-1">Variação da Frota</p></CardContent></Card>
-                </div>
-
-                <Card className="border-slate-800 bg-[#0f172a] text-white">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div><CardTitle>Ranking de Consumo</CardTitle><p className="text-sm text-slate-400">Comparativo Real vs Meta Individual</p></div>
-                        <Badge className="bg-green-600">Eficiência</Badge>
-                    </CardHeader>
-                    <CardContent className="h-[500px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={consumptionData} layout="vertical" margin={{ top: 20, right: 30, left: 20, bottom: 40 }} barSize={24}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
-                                <XAxis type="number" stroke="#94a3b8" tick={{fontSize: 12}} unit=" km/L" />
-                                <YAxis dataKey="name" type="category" stroke="#94a3b8" width={80} tick={{fontSize: 12}} />
-                                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                    {consumptionData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                        <div className="flex flex-wrap justify-center gap-6 mt-4 text-xs text-slate-400">
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div> &le;95% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> 96-99% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> 100-105% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> &ge;106% da Meta</div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
+            <div className="animate-in fade-in zoom-in-95"><OnboardFuelConsumption plates={(telemetryData || []).map(v => v.vehicle_plate)} /></div>
         )}
 
         {activeTab === 'condução' && (
