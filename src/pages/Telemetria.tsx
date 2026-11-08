@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { VehicleMap } from '@/components/telemetry/VehicleMap';
 import { useVehicleTelemetry, useTelemetryAlerts, useAcknowledgeAlert } from '@/hooks/useTelemetry';
-import { useFuelEntries } from '@/hooks/useFuelEntries';
+import { OnboardFuelPanel } from '@/components/telemetry/OnboardFuelPanel';
 import { supabase } from '@/integrations/supabase/client'; 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,6 @@ import { MapPin, Activity, Gauge, Fuel, Clock, AlertTriangle, Zap, CheckCircle, 
 import { DateRangeFilter } from '@/components/ui/DateRangeFilter';
 import { toast } from 'sonner';
 import { startOfWeek, startOfMonth, subMonths, startOfYear, subYears, isAfter, isBefore } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehaviorDashboard';
 import { GeofenceManager } from '@/components/geofence/GeofenceManager';
 import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
@@ -25,48 +24,10 @@ const normalizePlate = (plate: string | undefined) => {
   return plate.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload;
-    const difference = data.value - data.target;
-    const percentageDiff = data.target > 0 ? ((difference / data.target) * 100) : 0;
-    const isEfficient = difference >= 0; 
-    
-    const diffColor = isEfficient ? "text-green-400" : "text-red-400";
-    const Icon = isEfficient ? TrendingUp : TrendingDown;
-
-    return (
-      <div className="bg-[#1e293b] border border-slate-700 p-4 rounded-xl shadow-2xl text-white min-w-[200px] z-50">
-        <p className="font-bold text-lg mb-3 border-b border-slate-700 pb-2">{label}</p>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between items-center gap-6">
-            <span className="text-slate-400">Consumo Real:</span>
-            <span className="font-mono font-bold text-lg">{data.value.toFixed(2)} km/L</span>
-          </div>
-          <div className="flex justify-between items-center gap-6">
-            <span className="text-slate-400">Meta ({data.model}):</span>
-            <span className="font-mono font-bold text-slate-300">{data.target.toFixed(2)} km/L</span>
-          </div>
-          <div className={`pt-2 mt-2 border-t border-slate-700/50 flex justify-between items-center gap-4 font-bold ${diffColor}`}>
-             <span className="text-slate-400 text-xs uppercase">Variação:</span>
-             <div className="flex items-center gap-1">
-                <Icon className="w-3 h-3" />
-                <span>{isEfficient ? "+" : ""}{percentageDiff.toFixed(1)}% ({isEfficient ? "+" : ""}{difference.toFixed(2)} km/L)</span>
-             </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
-
 export default function Telemetria() {
   const { data: telemetryData } = useVehicleTelemetry();
   const { data: alerts, refetch: refetchAlerts } = useTelemetryAlerts(false); 
   const acknowledgeAlert = useAcknowledgeAlert();
-  const fuelEntriesQuery = useFuelEntries();
-  const fuelEntries = fuelEntriesQuery?.data || [];
   const [fullRegistry, setFullRegistry] = useState<any[]>([]);
 
   // Busca o cadastro completo e loga no console para conferência
@@ -182,55 +143,19 @@ export default function Telemetria() {
     });
   }, [enrichedVehicles, filterStatus, periodo, dateRange, alerts]);
 
-  // --- DADOS CONSUMO REAL (baseado em abastecimentos + odômetro da telemetria) ---
-  const consumptionData = useMemo(() => {
-    return filteredVehicles.map(v => {
-        const target = v.target_consumption; 
-        const plate = normalizePlate(v.vehicle_plate);
-        
-        // Busca abastecimentos do veículo ordenados por km
-        const vehicleFuel = fuelEntries
-          .filter(f => normalizePlate(f.vehicle_plate) === plate)
-          .sort((a, b) => a.mileage - b.mileage);
-        
-        let actual = 0;
-        
-        if (vehicleFuel.length >= 2) {
-          // Consumo entre primeiro e último abastecimento: distância / litros
-          const totalDist = vehicleFuel[vehicleFuel.length - 1].mileage - vehicleFuel[0].mileage;
-          const totalLiters = vehicleFuel.slice(1).reduce((acc, f) => acc + Number(f.liters), 0);
-          if (totalDist > 0 && totalLiters > 0) {
-            actual = totalDist / totalLiters;
-          }
-        } else if (vehicleFuel.length === 1 && v.odometer) {
-          // Fallback: usa odômetro da telemetria - km do abastecimento / litros
-          const dist = (v.odometer || 0) - vehicleFuel[0].mileage;
-          if (dist > 0 && vehicleFuel[0].liters > 0) {
-            actual = dist / Number(vehicleFuel[0].liters);
-          }
-        }
-
-        const percentageOfTarget = target > 0 && actual > 0 ? (actual / target) * 100 : 0;
-        let color = "#64748b"; // cinza = sem dados
-        if (actual > 0) {
-          if (percentageOfTarget <= 95) color = "#ef4444"; 
-          else if (percentageOfTarget <= 99) color = "#eab308"; 
-          else if (percentageOfTarget <= 105) color = "#22c55e"; 
-          else color = "#3b82f6";
-        }
-
-        return {
-            name: v.vehicle_plate,
-            model: v.model,
-            value: Number(actual.toFixed(2)),
-            target: Number(target.toFixed(2)),
-            color: color
-        };
-    }).sort((a, b) => b.value - a.value);
-  }, [filteredVehicles, fuelEntries]);
-
-  const avgConsumption = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.value, 0) / consumptionData.length : 0;
-  const avgTarget = consumptionData.length > 0 ? consumptionData.reduce((acc, c) => acc + c.target, 0) / consumptionData.length : 0;
+  // Reporting boundaries use whole Sao Paulo days, independent of latest vehicle status.
+  const fuelBounds = useMemo(() => {
+    const now = new Date();
+    const localToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const today = new Date(`${localToday}T12:00:00-03:00`);
+    const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const start = periodo === 'today' ? today : periodo === 'week' ? startOfWeek(today) : periodo === 'month' ? startOfMonth(today) : periodo === 'custom' ? dateRange?.from : undefined;
+    const end = periodo === 'custom' ? dateRange?.to : periodo !== 'all' ? today : undefined;
+    return {
+      from: start ? new Date(`${dateKey(start)}T00:00:00-03:00`).toISOString() : undefined,
+      to: end ? new Date(new Date(`${dateKey(end)}T00:00:00-03:00`).getTime() + 86400000).toISOString() : undefined,
+    };
+  }, [periodo, dateRange]);
 
   const Speedometer = ({ speed }: { speed: number }) => {
     const maxSpeed = 120;
@@ -405,39 +330,10 @@ export default function Telemetria() {
         )}
 
         {activeTab === 'consumo' && (
-            <div className="space-y-6 animate-in fade-in zoom-in-95">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgConsumption.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média Real (km/L)</p></CardContent></Card>
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className="text-3xl font-bold">{avgTarget.toFixed(2)}</div><p className="text-xs text-slate-400 uppercase mt-1">Média das Metas</p></CardContent></Card>
-                    <Card className="bg-[#0f172a] border-slate-800 text-white"><CardContent className="pt-6 text-center"><div className={`text-3xl font-bold flex items-center justify-center gap-1 ${avgConsumption >= avgTarget ? 'text-green-400' : 'text-red-400'}`}><TrendingUp className="w-4 h-4"/> {avgTarget > 0 ? (((avgConsumption - avgTarget) / avgTarget) * 100).toFixed(1) : 0}%</div><p className="text-xs text-slate-400 uppercase mt-1">Variação da Frota</p></CardContent></Card>
-                </div>
-
-                <Card className="border-slate-800 bg-[#0f172a] text-white">
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div><CardTitle>Ranking de Consumo</CardTitle><p className="text-sm text-slate-400">Comparativo Real vs Meta Individual</p></div>
-                        <Badge className="bg-green-600">Eficiência</Badge>
-                    </CardHeader>
-                    <CardContent className="h-[500px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={consumptionData} layout="vertical" margin={{ top: 20, right: 30, left: 20, bottom: 40 }} barSize={24}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
-                                <XAxis type="number" stroke="#94a3b8" tick={{fontSize: 12}} unit=" km/L" />
-                                <YAxis dataKey="name" type="category" stroke="#94a3b8" width={80} tick={{fontSize: 12}} />
-                                <Tooltip content={<CustomTooltip />} cursor={{fill: 'rgba(255,255,255,0.05)'}} />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                    {consumptionData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                        <div className="flex flex-wrap justify-center gap-6 mt-4 text-xs text-slate-400">
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-red-500"></div> &le;95% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-yellow-500"></div> 96-99% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-green-500"></div> 100-105% da Meta</div>
-                            <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> &ge;106% da Meta</div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
+          <OnboardFuelPanel
+            from={fuelBounds.from}
+            to={fuelBounds.to}
+          />
         )}
 
         {activeTab === 'condução' && (
