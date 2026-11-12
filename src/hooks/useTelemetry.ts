@@ -418,6 +418,7 @@ export const useSyncTelemetry = () => {
       // --- AQUI ESTÁ A MÁGICA DA AUTOMAÇÃO ---
       // Atualiza os pontos no mapa
       queryClient.invalidateQueries({ queryKey: ['vehicle_telemetry'] });
+      queryClient.invalidateQueries({ queryKey: ['onboard-consumption'] });
       
       // Atualiza os alertas
       queryClient.invalidateQueries({ queryKey: ['telemetry_alerts'] });

@@ -1,11 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { strFromU8 } from "npm:fflate@0.8.2";
 import pako from "npm:pako@2.1.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { z } from 'npm:zod@3';
+import { parseDescriptions } from './descriptions.ts';
 
 function parseXmlValue(xml: string, tagName: string): string | null {
   const regex = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, "gi");
@@ -63,6 +61,24 @@ function decodeTrucksControlBody(bytes: Uint8Array): string {
   return strFromU8(bytes);
 }
 
+async function requestTracker(xml: string): Promise<string> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('TrucksControl não respondeu em 28s')); }, 28_000);
+    });
+    return await Promise.race([(async () => {
+      const response = await fetch('https://webservice.newrastreamentoonline.com.br', {
+        method: 'POST', headers: { 'Content-Type': 'text/xml', 'User-Agent': 'Mozilla/5.0' },
+        body: xml, signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`TrucksControl HTTP ${response.status}`);
+      return decodeTrucksControlBody(new Uint8Array(await response.arrayBuffer()));
+    })(), timeout]);
+  } finally { clearTimeout(timer); }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -74,12 +90,21 @@ Deno.serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (!TRUCKSCONTROL_USER || !TRUCKSCONTROL_PASSWORD) {
+    if (!TRUCKSCONTROL_USER || !TRUCKSCONTROL_PASSWORD || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return new Response(JSON.stringify({ success: false, error: "Credenciais não configuradas" }), 
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const token = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
+    const { data: auth, error: authError } = await supabase.auth.getUser(token || '');
+    if (authError || !auth.user) return new Response(JSON.stringify({ success: false, error: 'Sessão inválida' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+    const parsed = z.object({ descriptionsOnly: z.boolean().optional() }).strict().safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) return new Response(JSON.stringify({ success: false, error: 'Parâmetros inválidos' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
 
     // RequestAlertasSoftware - Buscar alertas de software
     const xmlRequest = `<?xml version="1.0" encoding="UTF-8"?>
@@ -90,40 +115,29 @@ Deno.serve(async (req) => {
 
     console.log("[truckscontrol-alertas] start", { ts: new Date().toISOString() });
 
-    const controller = new AbortController();
-    let timeout: number | undefined;
-    const hardTimeout = new Promise<never>((_, reject) => {
-      timeout = setTimeout(() => {
-        controller.abort();
-        const err = new Error("timeout");
-        err.name = "AbortError";
-        reject(err);
-      }, 45_000);
-    });
-
-    let responseText = "";
-    try {
-      const work = (async () => {
-        const response = await fetch("https://webservice.newrastreamentoonline.com.br", {
-          method: "POST",
-          headers: { "Content-Type": "text/xml; charset=UTF-8", Accept: "*/*", "User-Agent": "FleetApp/1.0" },
-          body: xmlRequest,
-          signal: controller.signal,
-        });
-        return new Uint8Array(await response.arrayBuffer());
-      })();
-      const bytes = await Promise.race([work, hardTimeout]);
-      responseText = decodeTrucksControlBody(bytes);
-    } catch (e) {
-      const aborted = (e as Error)?.name === "AbortError";
-      console.error("[truckscontrol-alertas] fetch failed", String(e));
-      return new Response(JSON.stringify({
-        success: false,
-        error: aborted ? "TrucksControl não respondeu em 45s (timeout)" : String(e),
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    } finally {
-      clearTimeout(timeout);
+    const descriptionXml = `<?xml version="1.0" encoding="UTF-8"?><RequestDescricaoAlertas><login>${escapeXml(TRUCKSCONTROL_USER)}</login><senha>${escapeXml(TRUCKSCONTROL_PASSWORD)}</senha></RequestDescricaoAlertas>`;
+    const [descriptionResult, alertResult] = await Promise.allSettled([
+      requestTracker(descriptionXml),
+      parsed.data.descriptionsOnly ? Promise.resolve('') : requestTracker(xmlRequest),
+    ]);
+    const descriptionText = descriptionResult.status === 'fulfilled' ? descriptionResult.value : '';
+    const descriptions = parseDescriptions(descriptionText);
+    const descriptionError = descriptionResult.status === 'rejected' ? String(descriptionResult.reason) :
+      descriptions.size === 0 ? (parseXmlValue(descriptionText, 'erro') || 'Catálogo de descrições indisponível') : null;
+    let historicalUpdated = 0;
+    for (const [id, name] of descriptions) {
+      const { data: updated, error } = await supabase.from('telemetry_alerts')
+        .update({ title: name }).eq('alert_type', 'tracker_alert').eq('title', `Alerta rastreador #${id}`).select('id');
+      if (error) throw error;
+      historicalUpdated += updated?.length || 0;
     }
+    if (parsed.data.descriptionsOnly) return new Response(JSON.stringify({
+      success: descriptions.size > 0, descriptionsFound: descriptions.size, historicalUpdated, error: descriptionError,
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    if (alertResult.status === 'rejected') return new Response(JSON.stringify({
+      success: false, error: String(alertResult.reason), descriptionsFound: descriptions.size, historicalUpdated,
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    const responseText = alertResult.value;
 
     if (responseText.includes("<erro>")) {
       const erro = parseXmlValue(responseText, "erro") || "Erro desconhecido";
@@ -192,7 +206,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const desc = (descricao || `Alerta rastreador #${tdeID || alsID}`).trim();
+      const desc = ((tdeID ? descriptions.get(tdeID) : null) || descricao || `Alerta rastreador #${tdeID || alsID}`).trim();
       const low = (desc + " " + (tipoAlerta || "")).toLowerCase();
       let severity = "warning";
       if (low.includes("critic") || low.includes("pânico") || low.includes("panico") || low.includes("emerg") || low.includes("viola")) severity = "critical";
@@ -239,6 +253,9 @@ Deno.serve(async (req) => {
       alertasFound: alertaNodes.length,
       alertasCreated,
       vehiclesNotFound,
+      descriptionsFound: descriptions.size,
+      descriptionError,
+      historicalUpdated,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (err) {
