@@ -17,6 +17,7 @@ import { DrivingBehaviorDashboard } from '@/components/dashboard/DrivingBehavior
 import { GeofenceManager } from '@/components/geofence/GeofenceManager';
 import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
 import { OnboardConsumptionPanel } from '@/components/telemetry/OnboardConsumptionPanel';
+import { FuelCurvePanel } from '@/components/telemetry/FuelCurvePanel';
 import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
 
 
@@ -408,6 +409,7 @@ export default function Telemetria() {
         {activeTab === 'consumo' && (
             <div className="space-y-6 animate-in fade-in zoom-in-95">
                 <OnboardConsumptionPanel />
+                <FuelCurvePanel />
             </div>
         )}
 
