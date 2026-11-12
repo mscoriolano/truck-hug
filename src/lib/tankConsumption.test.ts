@@ -1,3 +1,4 @@
+/// <reference types="bun" />
 import { test, expect } from 'bun:test';
 import { computeTankDaily, tankPeriodAverage, type TankReading } from './tankConsumption';
 const row = (hour: number, odometer: number, fuel_level: number | null, ignition_on = true): TankReading => ({ vehicle_plate: 'SJU0H94', driver_name: 'Motorista', data_timestamp: `2026-11-12T${hour}:00:00-03:00`, odometer, fuel_level, ignition_on });
