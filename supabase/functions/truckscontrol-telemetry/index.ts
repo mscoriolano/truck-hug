@@ -285,6 +285,7 @@ Deno.serve(async (req) => {
     const journeyEvents: any[] = [];
     const alerts: any[] = [];
     const behaviorEvents: any[] = [];
+    const canReadings: any[] = [];
     const vehicleMileageUpdates: { id: string; mileage: number }[] = [];
     const driverVehicleLinks: { driverId: string; driverName: string; vehicleId: string; vehiclePlate: string }[] = [];
     // Track journey starts/ends for compliance
@@ -325,6 +326,9 @@ Deno.serve(async (req) => {
       const motID = parseXmlValue(msgXml, "motID");
       const motName = parseXmlValue(msgXml, "mot");
       const evtG = parseXmlValue(msgXml, "evtG");
+      // <lt>: litros no tanque (sensor de nível/CAN), opcional
+      const ltRaw = parseXmlValue(msgXml, "lt");
+      const tankLiters = ltRaw !== null && ltRaw !== "" && !isNaN(Number(ltRaw)) ? Number(ltRaw) : null;
 
       // Event flags
       const evt3 = parseXmlValue(msgXml, "evt3"); // ignition off
@@ -364,11 +368,29 @@ Deno.serve(async (req) => {
           last_mld: mId > 0 ? mId : existing?.last_mld,
           rpm: rpm || existing?.rpm,
           battery_level: bat,
+          fuel_level: tankLiters ?? existing?.fuel_level ?? null,
           gps_timestamp: dt || existing?.gps_timestamp,
           location_name: locationName,
           municipality: mun || null,
           state: uf || null,
           received_at: new Date().toISOString(),
+        });
+      }
+
+      // ============ Tank level reading (<lt>) ============
+      if (tankLiters !== null) {
+        canReadings.push({
+          vehicle_id: vehicle.id,
+          vehicle_plate: vehicle.plate,
+          driver_id: driverId,
+          driver_name: driverName,
+          data_timestamp: dt || new Date().toISOString(),
+          fuel_level: tankLiters,
+          odometer: odm > 0 ? odm : null,
+          rpm,
+          speed: vel,
+          ignition_on: ignition,
+          raw_data: { source: "truckscontrol_lt", mId, veiID },
         });
       }
 
@@ -616,6 +638,13 @@ Deno.serve(async (req) => {
         telemetryUpdated++;
       }
     }
+
+    // 1b. Persist tank level readings (<lt>)
+    for (let i = 0; i < canReadings.length; i += 500) {
+      const { error: canErr } = await supabase.from("vehicle_can_data").insert(canReadings.slice(i, i + 500));
+      if (canErr) console.error("[truckscontrol-telemetry] tank level insert error:", canErr.message);
+    }
+    console.log(`[truckscontrol-telemetry] leituras de tanque (<lt>): ${canReadings.length}`);
 
     // 2. Update vehicle mileage
     const mileageProcessed = new Set<string>();
