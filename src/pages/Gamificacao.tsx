@@ -9,6 +9,7 @@ import { useTires } from '@/hooks/useTires';
 import { useTrips } from '@/hooks/useTrips';
 import { useTripStatistics } from '@/hooks/useTripStatistics';
 import { Badge } from '@/components/ui/badge';
+import { GobraxPanel } from '@/components/gamification/GobraxPanel';
 import { 
   Loader2, 
   Trophy, 
@@ -451,6 +452,8 @@ const Gamificacao = () => {
             </ResponsiveContainer>
           </div>
         )}
+
+        <GobraxPanel startDate={startDate} endDate={endDate} />
 
         {driverPerformance.length === 0 && (
           <div className="text-center py-12 rounded-xl border border-border bg-card">
