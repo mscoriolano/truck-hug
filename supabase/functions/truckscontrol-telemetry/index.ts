@@ -328,7 +328,8 @@ Deno.serve(async (req) => {
       const evtG = parseXmlValue(msgXml, "evtG");
       // <lt>: litros no tanque (sensor de nível/CAN), opcional
       const ltRaw = parseXmlValue(msgXml, "lt");
-      const tankLiters = ltRaw !== null && ltRaw !== "" && !isNaN(Number(ltRaw)) ? Number(ltRaw) : null;
+      const ltNumber = ltRaw ? Number(ltRaw.replace(',', '.')) : NaN;
+      const tankLiters = Number.isFinite(ltNumber) && ltNumber >= 0 ? ltNumber : null;
 
       // Event flags
       const evt3 = parseXmlValue(msgXml, "evt3"); // ignition off
