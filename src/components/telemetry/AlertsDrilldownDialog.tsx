@@ -2,6 +2,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useMemo, useState } from 'react';
 import { CheckCircle, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -36,16 +39,44 @@ interface AlertsDrilldownDialogProps {
   onAcknowledge?: (alertId: string) => void;
 }
 
-export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts, onAcknowledge }: AlertsDrilldownDialogProps) {
+const alertKind = (a: TelemetryAlert) =>
+  a.alert_type === 'tracker_alert' ? (a.title || 'Alerta do rastreador') : (ALERT_LABELS[a.alert_type] || a.alert_type);
+
+export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAlerts, onAcknowledge }: AlertsDrilldownDialogProps) {
+  const [kind, setKind] = useState('all');
+  const [search, setSearch] = useState('');
+  const kinds = useMemo(() => {
+    const m = new Map<string, number>();
+    allAlerts.forEach((a) => { const k = alertKind(a); m.set(k, (m.get(k) || 0) + 1); });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [allAlerts]);
+  const alerts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allAlerts.filter((a) =>
+      (kind === 'all' || alertKind(a) === kind) &&
+      (!q || `${a.vehicle_plate || ''} ${a.driver_name || ''}`.toLowerCase().includes(q)));
+  }, [allAlerts, kind, search]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {title}
-            <Badge variant="secondary">{alerts.length}</Badge>
+            <Badge variant="secondary">{allAlerts.length}</Badge>
           </DialogTitle>
         </DialogHeader>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Select value={kind} onValueChange={setKind}>
+            <SelectTrigger className="sm:w-72"><SelectValue placeholder="Tipo de alerta" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os tipos ({allAlerts.length})</SelectItem>
+              {kinds.map(([k, n]) => <SelectItem key={k} value={k}>{k} ({n})</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input placeholder="Buscar placa ou motorista" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <p className="text-xs text-muted-foreground">Exibindo {alerts.length} de {allAlerts.length} alertas</p>
 
         <ScrollArea className="max-h-[65vh] pr-3">
           {alerts.length === 0 ? (
@@ -55,7 +86,7 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts, onAck
               {alerts.map((a) => (
                 <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-background">
                   <Badge className={`text-[10px] whitespace-nowrap ${SEVERITY_COLORS[a.severity] || SEVERITY_COLORS.info}`}>
-                    {ALERT_LABELS[a.alert_type] || a.alert_type}
+                    {a.alert_type === 'tracker_alert' ? 'Rastreador' : (ALERT_LABELS[a.alert_type] || a.alert_type)}
                   </Badge>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground">
