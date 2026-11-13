@@ -218,6 +218,7 @@ export function TrucksControlSync() {
           },
         }),
         supabase.functions.invoke('truckscontrol-alertas', { body: {} }),
+        supabase.functions.invoke('truckscontrol-telemetria-relatorio', { body: {} }),
       ] as const;
 
       // Em modo debug, dispara também as demais requisições para você ver request/response em logs

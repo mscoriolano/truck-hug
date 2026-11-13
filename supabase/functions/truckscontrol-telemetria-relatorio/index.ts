@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     console.log("[telemetria-relatorio] relatórios:", reports.length, "preview:", text.slice(0, 300).replace(/<senha>.*?<\/senha>/g, ""));
     if (!reports.length) return json({ success: true, imported: 0, message: "Nenhum relatório disponível (D-1)", raw: text.slice(0, 500) });
 
-    const { data: tel } = await supabase.from("vehicle_telemetry").select("vehicle_id, vehicle_plate, truckscontrol_id, driver_name");
+    const { data: tel } = await supabase.from("vehicle_telemetry").select("vehicle_id, vehicle_plate, truckscontrol_id");
     const byVei = new Map<string, any>();
     for (const t of tel || []) if (t.truckscontrol_id) byVei.set(String(t.truckscontrol_id), t);
 
@@ -57,9 +57,16 @@ Deno.serve(async (req) => {
       if (!v?.vehicle_id) { notFound++; continue; }
       const day = r.date || fallbackDate;
       const ts = `${day}T12:00:00-03:00`;
+      // Motorista predominante do dia (das leituras do rastreador)
+      const { data: drv } = await supabase.from("vehicle_can_data").select("driver_name")
+        .eq("vehicle_id", v.vehicle_id).gte("data_timestamp", `${day}T00:00:00-03:00`).lte("data_timestamp", `${day}T23:59:59-03:00`)
+        .not("driver_name", "is", null).limit(1000);
+      const counts = new Map<string, number>();
+      for (const d of drv || []) counts.set(d.driver_name, (counts.get(d.driver_name) || 0) + 1);
+      const driverName = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
       const kml = r.mediaConsumo ?? (r.distanciaKm && r.consumoTotal ? r.distanciaKm / r.consumoTotal : null);
       const row = {
-        vehicle_id: v.vehicle_id, vehicle_plate: v.vehicle_plate, driver_name: v.driver_name ?? null,
+        vehicle_id: v.vehicle_id, vehicle_plate: v.vehicle_plate, driver_name: driverName,
         data_timestamp: ts, ignition_on: true,
         odometer: r.odmFim, fuel_used_total: r.consumoTotal, onboard_consumption_kml: kml,
         rpm: r.rpmMedio, speed: r.velMedia, total_time_minutes: r.totalMotorLig ?? r.utilizacao,
