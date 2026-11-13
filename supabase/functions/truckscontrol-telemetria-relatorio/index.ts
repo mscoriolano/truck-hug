@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { strFromU8, unzipSync } from "npm:fflate@0.8.2";
+import { strFromU8 } from "npm:fflate@0.8.2";
+import pako from "npm:pako@2.1.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { parseRelatorio } from "./parse.ts";
 
@@ -9,7 +10,15 @@ const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 
 function decode(bytes: Uint8Array): string {
   if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    try { const files = unzipSync(bytes); const f = Object.values(files)[0]; return f ? strFromU8(f) : ""; } catch { return ""; }
+    try {
+      const nameLen = bytes[26] | (bytes[27] << 8);
+      const extraLen = bytes[28] | (bytes[29] << 8);
+      const dataStart = 30 + nameLen + extraLen;
+      const compression = bytes[8] | (bytes[9] << 8);
+      if (compression === 8) return strFromU8(pako.inflateRaw(bytes.slice(dataStart)) as Uint8Array);
+      if (compression === 0) return strFromU8(bytes.slice(dataStart));
+    } catch (e) { console.error("[telemetria-relatorio] unzip failed", String(e)); }
+    return "";
   }
   return strFromU8(bytes);
 }
