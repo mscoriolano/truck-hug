@@ -19,6 +19,7 @@ type Row = {
   onboard_consumption_kml: number | null;
   ignition_on: boolean | null;
   fuel_level: number | null;
+  raw_data?: any;
 };
 
 type Day = { plate: string; driver: string; day: string; km: number | null; liters: number | null; kml: number | null };
@@ -36,6 +37,12 @@ export function computeDaily(rows: Row[]): Day[] {
   const out: Day[] = [];
   groups.forEach((list, key) => {
     const [plate, driver, day] = key.split('|');
+    const rep = list.find(r => r.raw_data?.source === 'telemetria_relatorio');
+    if (rep) {
+      const d = rep.raw_data;
+      out.push({ plate, driver, day, km: d.distanciaKm ?? null, liters: d.consumoTotal ?? null, kml: rep.onboard_consumption_kml ?? d.mediaConsumo ?? null });
+      return;
+    }
     const odo = list.map(r => r.odometer).filter((v): v is number => v != null && v > 0);
     const fuel = list.map(r => r.fuel_used_total).filter((v): v is number => v != null && Number(v) > 0).map(Number);
     const km = odo.length > 1 ? Math.max(...odo) - Math.min(...odo) : null;
@@ -70,7 +77,7 @@ export function OnboardConsumptionPanel() {
       for (let page = 0; ; page++) {
         const { data, error } = await supabase
           .from('vehicle_can_data')
-          .select('vehicle_plate,driver_name,data_timestamp,odometer,fuel_used_total,onboard_consumption_kml,ignition_on,fuel_level')
+          .select('vehicle_plate,driver_name,data_timestamp,odometer,fuel_used_total,onboard_consumption_kml,ignition_on,fuel_level,raw_data')
           .gte('data_timestamp', `${from}T00:00:00-03:00`)
           .lte('data_timestamp', `${to}T23:59:59.999-03:00`)
           .order('data_timestamp')

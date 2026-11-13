@@ -412,6 +412,14 @@ export const useSyncTelemetry = () => {
           queryClient.invalidateQueries({ queryKey: ['telemetry_alerts'] });
         })
         .catch((e) => console.warn('Falha ao importar alertas do rastreador', e));
+      // Relatório D-1 do computador de bordo (consumo real km/L, litros, marcha lenta)
+      supabase.functions
+        .invoke('truckscontrol-telemetria-relatorio', { body: {} })
+        .then(({ error: relErr }) => {
+          if (relErr) console.warn('Falha ao importar relatório de telemetria', relErr);
+          queryClient.invalidateQueries({ queryKey: ['onboard-consumption'] });
+        })
+        .catch((e) => console.warn('Falha ao importar relatório de telemetria', e));
       return data;
     },
     onSuccess: (data) => {
