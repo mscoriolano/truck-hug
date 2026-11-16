@@ -1,9 +1,9 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { parseRelatorio } from "./parse.ts";
 
-Deno.test("parses multi-vehicle D-1 report with meters->km and comma decimals", () => {
+Deno.test("parses multi-vehicle D-1 report with km and comma decimals", () => {
   const xml = `<ResponseTelemetriaRelatorio><DataHoraRelatorio><dtHr>12/11/2026</dtHr></DataHoraRelatorio>
-  <Relatorio><veiID>10</veiID><distancia>250000</distancia><mediaConsumo>2,85</mediaConsumo><consumoTotal>87,7</consumoTotal><totalMotorLigPar>42</totalMotorLigPar></Relatorio>
+  <Relatorio><veiID>10</veiID><distancia>250</distancia><mediaConsumo>2,85</mediaConsumo><consumoTotal>87,7</consumoTotal><totalMotorLigPar>42</totalMotorLigPar></Relatorio>
   <Relatorio><veiID>11</veiID><distancia></distancia></Relatorio></ResponseTelemetriaRelatorio>`;
   const r = parseRelatorio(xml);
   assertEquals(r.length, 2);
