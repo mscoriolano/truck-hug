@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Cpu, Info } from 'lucide-react';
 import { computeTankDaily, tankPeriodAverage } from '@/lib/tankConsumption';
+import { dayKm, dayLiters, type ReportDay } from '@/lib/onboardTrip';
+import { TripConsolidation } from './TripConsolidation';
 
 type Row = {
   vehicle_plate: string;
@@ -40,7 +42,9 @@ export function computeDaily(rows: Row[]): Day[] {
     const rep = list.find(r => r.raw_data?.source === 'telemetria_relatorio');
     if (rep) {
       const d = rep.raw_data;
-      out.push({ plate, driver, day, km: d.distanciaKm ?? null, liters: d.consumoTotal ?? null, kml: rep.onboard_consumption_kml ?? d.mediaConsumo ?? null });
+      const kml = rep.onboard_consumption_kml ?? d.mediaConsumo ?? null;
+      const km = dayKm({ odmIni: d.odmIni ?? null, odmFim: d.odmFim ?? null, distancia: d.distanciaKm ?? null });
+      out.push({ plate, driver, day, km, liters: d.consumoTotal ?? dayLiters({ odmIni: d.odmIni ?? null, odmFim: d.odmFim ?? null, distancia: d.distanciaKm ?? null, kml }), kml });
       return;
     }
     const odo = list.map(r => r.odometer).filter((v): v is number => v != null && v > 0);
@@ -64,6 +68,7 @@ export function OnboardConsumptionPanel() {
   const [plate, setPlate] = useState('all');
   const [driver, setDriver] = useState('all');
   const [source, setSource] = useState('onboard');
+  const [tripId, setTripId] = useState('none');
 
   const { data: vehicles = [] } = useQuery({
     queryKey: ['onboard-vehicles'],
@@ -105,6 +110,17 @@ export function OnboardConsumptionPanel() {
     const v = list.map(d => d.kml).filter((x): x is number => x != null);
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
   };
+
+  const reportDays: ReportDay[] = useMemo(() => rows.filter(r => r.raw_data?.source === 'telemetria_relatorio').map(r => {
+    const d = r.raw_data;
+    return {
+      plate: r.vehicle_plate, driver: r.driver_name || 'Sem motorista', day: d.report_date || format(new Date(r.data_timestamp), 'yyyy-MM-dd'),
+      odmIni: d.odmIni ?? null, odmFim: d.odmFim ?? null, distancia: d.distanciaKm ?? null,
+      kml: r.onboard_consumption_kml ?? d.mediaConsumo ?? null, velMedia: d.velMedia ?? null,
+      minutesMoving: d.totalMotorLigMov ?? d.utilizacao ?? null, minutesIdle: d.totalMotorLigPar ?? null,
+      brakes: d.qtdFreio ?? null, clutch: d.qtdEmbreagem ?? null,
+    };
+  }).filter(d => (plate === 'all' || d.plate === plate) && (driver === 'all' || d.driver === driver)), [rows, plate, driver]);
 
   const plates = plate === 'all' ? vehicles.map(v => v.plate) : [plate];
   const perPlate = plates.map(p => ({ plate: p, avg: avgOf(filtered.filter(d => d.plate === p)) }));
@@ -183,7 +199,7 @@ export function OnboardConsumptionPanel() {
                   <TableCell>{format(new Date(`${d.day}T12:00:00`), 'dd/MM/yyyy')}</TableCell>
                   <TableCell>{d.plate}</TableCell>
                   <TableCell>{d.driver}</TableCell>
-                  <TableCell className="text-right">{d.km ?? '—'}</TableCell>
+                  <TableCell className="text-right">{d.km != null ? d.km.toLocaleString('pt-BR') : '—'}</TableCell>
                   <TableCell className="text-right">{d.liters != null ? d.liters.toFixed(1) : '—'}</TableCell>
                   <TableCell className="text-right font-mono">{d.kml != null ? d.kml.toFixed(2) : 'Indisponível'}</TableCell>
                   {source === 'tank' && <TableCell className="text-right">{'excluded' in d ? String(d.excluded) : '—'}</TableCell>}
@@ -193,6 +209,14 @@ export function OnboardConsumptionPanel() {
           </Table>
         </CardContent>
       </Card>
+
+      {source === 'onboard' && (
+        <TripConsolidation days={reportDays} from={from} to={to} plate={plate} tripId={tripId}
+          onTrip={t => {
+            if (!t) { setTripId('none'); return; }
+            setTripId(t.id); setPlate(t.plate); setFrom(t.from); setTo(t.to); setDriver('all');
+          }} />
+      )}
     </div>
   );
 }

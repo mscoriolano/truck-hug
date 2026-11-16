@@ -36,7 +36,8 @@ export function parseRelatorio(xml: string): DailyReport[] {
     const dist = num(tag(r, "distancia"));
     out.push({
       veiID, date,
-      distanciaKm: dist == null ? null : dist / 1000,
+      // TrucksControl envia <distancia> já em km (confirmado por odmFim - odmIni)
+      distanciaKm: dist,
       mediaConsumo: num(tag(r, "mediaConsumo")), consumoTotal: num(tag(r, "consumoTotal")),
       consHoraMotor: num(tag(r, "consHoraMotor")), odmIni: num(tag(r, "odmIni")), odmFim: num(tag(r, "odmFim")),
       velMedia: num(tag(r, "velMedia")), velMax: num(tag(r, "velMax")),
