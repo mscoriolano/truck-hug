@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { dayKm, dayLiters, summarizeTrip, type ReportDay } from './onboardTrip';
 
 const base = { plate: 'TDY9E99', driver: 'X', velMedia: null, minutesMoving: null, minutesIdle: null, brakes: null, clutch: null } as const;
