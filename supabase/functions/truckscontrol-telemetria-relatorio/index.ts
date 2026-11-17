@@ -23,7 +23,7 @@ function decode(bytes: Uint8Array): string {
   return strFromU8(bytes);
 }
 
-Deno.serve(async (req) => {
+const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const user = Deno.env.get("TRUCKSCONTROL_USER");
@@ -92,4 +92,17 @@ Deno.serve(async (req) => {
     console.error("[telemetria-relatorio] error", String(e));
     return json({ success: false, error: String(e instanceof Error ? e.message : e) }, 200);
   }
+};
+
+// Agendador automático tem limite de 5s: responde na hora e processa em segundo plano.
+Deno.serve(async (req: Request) => {
+  if (req.method === "POST") {
+    const body = await req.clone().json().catch(() => ({}));
+    if (body?.source === "cron") {
+      // @ts-ignore EdgeRuntime existe no runtime das funções
+      EdgeRuntime.waitUntil(handler(req).then((r) => r.text()).then((t) => console.log("[cron] done", t.slice(0, 300))).catch((e) => console.error("[cron] failed", String(e))));
+      return new Response(JSON.stringify({ accepted: true }), { status: 202, headers: { "Content-Type": "application/json" } });
+    }
+  }
+  return handler(req);
 });
