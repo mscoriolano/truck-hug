@@ -126,7 +126,7 @@ function mapMacroToEventType(dMac: string): string {
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const FETCH_TIMEOUT_MS = 55_000;
+  const FETCH_TIMEOUT_MS = 110_000;
   const MAX_RETRIES = 0;
 
   try {
