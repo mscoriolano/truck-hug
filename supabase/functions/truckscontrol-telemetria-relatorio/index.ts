@@ -48,7 +48,7 @@ const handler = async (req: Request): Promise<Response> => {
         if (!res.ok) throw new Error(`TrucksControl HTTP ${res.status}`);
         return decode(new Uint8Array(await res.arrayBuffer()));
       })(),
-      new Promise<never>((_, rej) => { timer = setTimeout(() => { controller.abort(); rej(new Error("TrucksControl não respondeu em 45s")); }, 45_000); }),
+      new Promise<never>((_, rej) => { timer = setTimeout(() => { controller.abort(); rej(new Error("TrucksControl não respondeu em 110s")); }, 110_000); }),
     ]).finally(() => clearTimeout(timer));
 
     const reports = parseRelatorio(text);

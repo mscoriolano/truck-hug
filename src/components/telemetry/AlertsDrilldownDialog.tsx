@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMemo, useState } from 'react';
 import { CheckCircle, MapPin } from 'lucide-react';
@@ -37,14 +38,17 @@ interface AlertsDrilldownDialogProps {
   title: string;
   alerts: TelemetryAlert[];
   onAcknowledge?: (alertId: string) => void;
+  onBulkAcknowledge?: (alertIds: string[]) => Promise<void> | void;
 }
 
 const alertKind = (a: TelemetryAlert) =>
   a.alert_type === 'tracker_alert' ? (a.title || 'Alerta do rastreador') : (ALERT_LABELS[a.alert_type] || a.alert_type);
 
-export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAlerts, onAcknowledge }: AlertsDrilldownDialogProps) {
+export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAlerts, onAcknowledge, onBulkAcknowledge }: AlertsDrilldownDialogProps) {
   const [kind, setKind] = useState('all');
   const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const kinds = useMemo(() => {
     const m = new Map<string, number>();
     allAlerts.forEach((a) => { const k = alertKind(a); m.set(k, (m.get(k) || 0) + 1); });
@@ -56,6 +60,15 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
       (kind === 'all' || alertKind(a) === kind) &&
       (!q || `${a.vehicle_plate || ''} ${a.driver_name || ''}`.toLowerCase().includes(q)));
   }, [allAlerts, kind, search]);
+  const pending = alerts.filter((a) => !a.acknowledged);
+  const allChecked = pending.length > 0 && pending.every((a) => selected.has(a.id));
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAll = () => setSelected(allChecked ? new Set() : new Set(pending.map((a) => a.id)));
+  const bulk = async (ids: string[]) => {
+    if (!onBulkAcknowledge || !ids.length) return;
+    setBusy(true);
+    try { await onBulkAcknowledge(ids); setSelected(new Set()); } finally { setBusy(false); }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
@@ -76,7 +89,24 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
           </Select>
           <Input placeholder="Buscar placa ou motorista" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <p className="text-xs text-muted-foreground">Exibindo {alerts.length} de {allAlerts.length} alertas</p>
+        <div className="flex flex-wrap items-center gap-3">
+          {onBulkAcknowledge && pending.length > 0 && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Checkbox checked={allChecked} onCheckedChange={toggleAll} /> Selecionar todos exibidos
+            </label>
+          )}
+          <p className="text-xs text-muted-foreground">Exibindo {alerts.length} de {allAlerts.length} alertas</p>
+          {onBulkAcknowledge && (
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" disabled={busy || selected.size === 0} onClick={() => bulk([...selected])}>
+                <CheckCircle className="w-4 h-4 mr-1" /> Arquivar selecionados ({selected.size})
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy || pending.length === 0} onClick={() => bulk(pending.map((a) => a.id))}>
+                Arquivar todos exibidos ({pending.length})
+              </Button>
+            </div>
+          )}
+        </div>
 
         <ScrollArea className="max-h-[65vh] pr-3">
           {alerts.length === 0 ? (
@@ -85,6 +115,9 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
             <div className="space-y-2">
               {alerts.map((a) => (
                 <div key={a.id} className="flex items-start gap-3 p-3 rounded-lg border border-border bg-background">
+                  {onBulkAcknowledge && !a.acknowledged && (
+                    <Checkbox className="mt-1" checked={selected.has(a.id)} onCheckedChange={() => toggle(a.id)} aria-label="Selecionar alerta" />
+                  )}
                   <Badge className={`text-[10px] whitespace-nowrap ${SEVERITY_COLORS[a.severity] || SEVERITY_COLORS.info}`}>
                     {a.alert_type === 'tracker_alert' ? 'Rastreador' : (ALERT_LABELS[a.alert_type] || a.alert_type)}
                   </Badge>

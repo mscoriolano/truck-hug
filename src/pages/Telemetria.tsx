@@ -261,6 +261,19 @@ export default function Telemetria() {
     try { await acknowledgeAlert.mutateAsync({ alertId, acknowledgedBy: 'user' }); refetchAlerts(); toast.success("Alerta arquivado!"); } catch { toast.error("Erro."); }
   };
 
+  const handleBulkAcknowledge = async (ids: string[]) => {
+    try {
+      for (let i = 0; i < ids.length; i += 200) {
+        const { error } = await supabase.from('telemetry_alerts')
+          .update({ acknowledged: true, acknowledged_at: new Date().toISOString(), acknowledged_by: 'user' })
+          .in('id', ids.slice(i, i + 200));
+        if (error) throw error;
+      }
+      refetchAlerts();
+      toast.success(`${ids.length} alertas arquivados!`);
+    } catch { toast.error("Erro ao arquivar alertas."); }
+  };
+
   return (
     <MainLayout title="Telemetria" subtitle="Monitoramento da Frota">
       <div className="space-y-6 pb-10 animate-fade-in">
@@ -315,6 +328,7 @@ export default function Telemetria() {
           title="Alertas de Telemetria"
           alerts={alerts || []}
           onAcknowledge={handleAcknowledge}
+          onBulkAcknowledge={handleBulkAcknowledge}
         />
 
 
