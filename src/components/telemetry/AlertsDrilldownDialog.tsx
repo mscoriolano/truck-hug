@@ -39,12 +39,14 @@ interface AlertsDrilldownDialogProps {
   alerts: TelemetryAlert[];
   onAcknowledge?: (alertId: string) => void;
   onBulkAcknowledge?: (alertIds: string[]) => Promise<void> | void;
+  onRestore?: (alertIds: string[]) => Promise<void> | void;
 }
 
 const alertKind = (a: TelemetryAlert) =>
   a.alert_type === 'tracker_alert' ? (a.title || 'Alerta do rastreador') : (ALERT_LABELS[a.alert_type] || a.alert_type);
 
-export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAlerts, onAcknowledge, onBulkAcknowledge }: AlertsDrilldownDialogProps) {
+export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAlerts, onAcknowledge, onBulkAcknowledge, onRestore }: AlertsDrilldownDialogProps) {
+  const [status, setStatus] = useState<'pending' | 'archived' | 'all'>('pending');
   const [kind, setKind] = useState('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -57,9 +59,10 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
   const alerts = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allAlerts.filter((a) =>
+      (status === 'all' || (status === 'archived' ? !!a.acknowledged : !a.acknowledged)) &&
       (kind === 'all' || alertKind(a) === kind) &&
       (!q || `${a.vehicle_plate || ''} ${a.driver_name || ''}`.toLowerCase().includes(q)));
-  }, [allAlerts, kind, search]);
+  }, [allAlerts, kind, search, status]);
   const pending = alerts.filter((a) => !a.acknowledged);
   const allChecked = pending.length > 0 && pending.every((a) => selected.has(a.id));
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -79,6 +82,13 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
           </DialogTitle>
         </DialogHeader>
 
+        <div className="flex gap-1 rounded-lg bg-muted p-1 w-fit">
+          {([['pending', 'Pendentes'], ['archived', 'Arquivados'], ['all', 'Todos']] as const).map(([v, l]) => (
+            <Button key={v} size="sm" variant={status === v ? 'default' : 'ghost'} onClick={() => { setStatus(v); setSelected(new Set()); }}>
+              {l} ({v === 'all' ? allAlerts.length : allAlerts.filter((a) => (v === 'archived') === !!a.acknowledged).length})
+            </Button>
+          ))}
+        </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <Select value={kind} onValueChange={setKind}>
             <SelectTrigger className="sm:w-72"><SelectValue placeholder="Tipo de alerta" /></SelectTrigger>
@@ -138,11 +148,17 @@ export function AlertsDrilldownDialog({ open, onOpenChange, title, alerts: allAl
                       {a.speed ? ` • ${a.speed} km/h` : ''}
                       {a.speed_limit ? ` (limite ${a.speed_limit})` : ''}
                     </p>
+                    {a.acknowledged && a.acknowledged_at && (
+                      <p className="text-xs text-muted-foreground">Arquivado em {format(new Date(a.acknowledged_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</p>
+                    )}
                   </div>
                   {onAcknowledge && !a.acknowledged && (
                     <Button size="sm" variant="outline" onClick={() => onAcknowledge(a.id)}>
                       <CheckCircle className="w-4 h-4 mr-1" /> Arquivar
                     </Button>
+                  )}
+                  {onRestore && a.acknowledged && (
+                    <Button size="sm" variant="ghost" onClick={() => onRestore([a.id])}>Restaurar</Button>
                   )}
                 </div>
               ))}

@@ -18,6 +18,8 @@ import { GeofenceManager } from '@/components/geofence/GeofenceManager';
 import { AlertsDrilldownDialog } from '@/components/telemetry/AlertsDrilldownDialog';
 import { OnboardConsumptionPanel } from '@/components/telemetry/OnboardConsumptionPanel';
 import { FuelCurvePanel } from '@/components/telemetry/FuelCurvePanel';
+import { StatisticsPanel } from '@/components/telemetry/StatisticsPanel';
+import { FuelSummaryPanel } from '@/components/telemetry/FuelSummaryPanel';
 import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
 
 
@@ -65,7 +67,10 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function Telemetria() {
   const { data: telemetryData } = useVehicleTelemetry();
-  const { data: alerts, refetch: refetchAlerts } = useTelemetryAlerts(false); 
+  const { data: alerts, refetch: refetchPending } = useTelemetryAlerts(false);
+  const { data: archivedAlerts, refetch: refetchArchived } = useTelemetryAlerts(true);
+  const refetchAlerts = () => { refetchPending(); refetchArchived(); };
+  const allAlerts = useMemo(() => [...(alerts || []), ...(archivedAlerts || [])], [alerts, archivedAlerts]);
   const acknowledgeAlert = useAcknowledgeAlert();
   const fuelEntriesQuery = useFuelEntries();
   const fuelEntries = fuelEntriesQuery?.data || [];
@@ -261,6 +266,13 @@ export default function Telemetria() {
     try { await acknowledgeAlert.mutateAsync({ alertId, acknowledgedBy: 'user' }); refetchAlerts(); toast.success("Alerta arquivado!"); } catch { toast.error("Erro."); }
   };
 
+  const handleRestore = async (ids: string[]) => {
+    const { error } = await supabase.from('telemetry_alerts')
+      .update({ acknowledged: false, acknowledged_at: null, acknowledged_by: null }).in('id', ids);
+    if (error) { toast.error("Erro ao restaurar."); return; }
+    refetchAlerts(); toast.success(`${ids.length} alerta(s) restaurado(s)!`);
+  };
+
   const handleBulkAcknowledge = async (ids: string[]) => {
     try {
       for (let i = 0; i < ids.length; i += 200) {
@@ -281,7 +293,7 @@ export default function Telemetria() {
         {/* BARRA SUPERIOR */}
         <div className="flex flex-col lg:flex-row justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 text-slate-300 mb-6 gap-4 shadow-lg">
              <div className="flex overflow-x-auto no-scrollbar gap-1 w-full lg:w-auto">
-                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas', 'histórico'].map(tab => (
+                {['mapa', 'velocidade', 'forca_g', 'consumo', 'condução', 'geofencing', 'bateria', 'ociosidade', 'alertas', 'estatísticas', 'resumo combustível', 'histórico'].map(tab => (
                     <Button key={tab} variant="ghost" onClick={() => setActiveTab(tab)} className={`hover:text-white hover:bg-slate-800 capitalize ${activeTab === tab ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700' : ''}`}>
                          {tab.replace('_', ' ')}
                     </Button>
@@ -326,9 +338,10 @@ export default function Telemetria() {
           open={alertsDialogOpen}
           onOpenChange={setAlertsDialogOpen}
           title="Alertas de Telemetria"
-          alerts={alerts || []}
+          alerts={allAlerts || []}
           onAcknowledge={handleAcknowledge}
           onBulkAcknowledge={handleBulkAcknowledge}
+          onRestore={handleRestore}
         />
 
 
@@ -505,6 +518,9 @@ export default function Telemetria() {
             </CardContent>
           </Card>
         )}
+
+        {activeTab === 'estatísticas' && <StatisticsPanel />}
+        {activeTab === 'resumo combustível' && <FuelSummaryPanel />}
 
         {activeTab === 'histórico' && (
           <div className="animate-in fade-in zoom-in-95">
