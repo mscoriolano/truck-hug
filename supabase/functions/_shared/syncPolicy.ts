@@ -1,0 +1,3 @@
+export function reportDay(now: Date): string { return new Date(now.getTime() - 27 * 3600_000).toISOString().slice(0, 10); }
+export function reportDue(now: Date): boolean { return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hourCycle: 'h23' }).format(now)) >= 5; }
+export function reportComplete(expected: number, imported: number, notFound: number): boolean { return expected > 0 && imported === expected && notFound === 0; }

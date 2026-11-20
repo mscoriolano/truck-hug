@@ -3,34 +3,35 @@ import { format, subDays } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Gauge as GaugeIcon, Route, Fuel, Clock, Hash, X } from 'lucide-react';
-import { useReportDays, useBehaviorCounts } from '@/hooks/useReportDays';
-import { aggregate, rankScore, type Agg } from '@/lib/fleetStats';
+import { useReportDays } from '@/hooks/useReportDays';
+import { aggregate, rankScore } from '@/lib/fleetStats';
 import { PanelFilters } from './PanelFilters';
+import { DEFAULT_PERCENT_TARGET, GOAL_LABELS, LIMIT_LABELS, gaugePosition, timePercentage } from '@/lib/statisticsGauges';
 
 const TARGET_KML = 2.2;
 const fmt = (v: number | null | undefined, d = 2) => (v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: d }));
 
-function Gauge({ label, value, sub, kind }: { label: string; value: number | null; sub: string; kind: 'meta' | 'limite' }) {
-  const v = value == null ? 0 : Math.max(0, Math.min(100, value));
-  const r = 40, c = Math.PI * r, dash = (v / 100) * c;
-  const color = kind === 'meta' ? 'hsl(var(--primary))' : v > 15 ? 'hsl(var(--destructive))' : 'hsl(var(--primary))';
-  return (
-    <div className="flex flex-col items-center text-center p-2">
-      <p className="text-xs font-medium text-foreground min-h-8">{label}</p>
-      <svg viewBox="0 0 100 58" className="w-28">
-        <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke="hsl(var(--muted))" strokeWidth="10" strokeLinecap="round" />
-        {value != null && <path d="M10 50 A40 40 0 0 1 90 50" fill="none" stroke={color} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${dash} ${c}`} />}
-        <text x="50" y="48" textAnchor="middle" className="fill-foreground" fontSize="14" fontWeight="700">{value == null ? '—' : `${fmt(value, 1)}%`}</text>
-      </svg>
-      <p className="text-[10px] text-muted-foreground">{sub}</p>
-    </div>
-  );
+function Gauge({ label, value, target = DEFAULT_PERCENT_TARGET, kind }: { label: string; value: number | null; target?: number; kind: 'meta' | 'limite' }) {
+  const c = Math.PI * 40;
+  const dash = gaugePosition(value ?? 0) / 100 * c;
+  const angle = Math.PI * (1 - gaugePosition(target) / 100);
+  const x = 50 + 40 * Math.cos(angle), y = 50 - 40 * Math.sin(angle);
+  return <div className="flex flex-col items-center text-center p-2 min-w-0">
+    <p className="text-xs font-medium min-h-12">{label}</p>
+    <p className="text-[10px] text-muted-foreground mb-2">{kind === 'meta' ? 'Meta' : 'Limite'}: {fmt(target)}% | Valor: {value == null ? 'Indisponível' : `${fmt(value)}%`}</p>
+    <svg viewBox="0 0 100 68" className="w-full max-w-36" role="img" aria-label={`${label}: ${value == null ? 'indisponível' : `${fmt(value)}%`}`}>
+      <path d="M10 50 A40 40 0 0 1 90 50" fill="none" className="stroke-muted" strokeWidth="10" />
+      {value != null && <path d="M10 50 A40 40 0 0 1 90 50" fill="none" className={kind === 'limite' && value > target ? 'stroke-destructive' : 'stroke-primary'} strokeWidth="10" strokeDasharray={`${dash} ${c}`} />}
+      <circle cx={x} cy={y} r="3" className="fill-foreground" />
+      <text x="50" y="48" textAnchor="middle" className="fill-foreground" fontSize="13" fontWeight="700">{value == null ? '—' : `${fmt(value)}%`}</text>
+      <text x="7" y="65" className="fill-muted-foreground" fontSize="9">0%</text><text x="75" y="65" className="fill-muted-foreground" fontSize="9">100%</text>
+    </svg>
+  </div>;
 }
 
 export function StatisticsPanel() {
   const [f, setF] = useState({ from: format(subDays(new Date(), 30), 'yyyy-MM-dd'), to: format(new Date(), 'yyyy-MM-dd'), plate: 'all', driver: 'all' });
   const { data: days = [], isLoading } = useReportDays(f.from, f.to);
-  const { data: events = [] } = useBehaviorCounts(f.from, f.to);
   const plates = useMemo(() => [...new Set(days.map(d => d.plate))].sort(), [days]);
   const drivers = useMemo(() => [...new Set(days.filter(d => f.plate === 'all' || d.plate === f.plate).map(d => d.driver))].sort(), [days, f.plate]);
   const byDriver = days.filter(d => f.driver === 'all' || d.driver === f.driver);
@@ -44,11 +45,7 @@ export function StatisticsPanel() {
     return rows.sort((x, y) => (y.score ?? -1) - (x.score ?? -1));
   }, [byDriver]);
   const scores = ranking.filter(r => r.score != null);
-  const score = f.plate === 'all' ? (scores.length ? scores.reduce((s, r) => s + r.score!, 0) / scores.length : null) : rankScore(total, TARGET_KML);
-
-  const ev = events.filter(e => (f.plate === 'all' || e.vehicle_plate === f.plate) && (f.driver === 'all' || e.driver_name === f.driver));
-  const count = (...t: string[]) => ev.filter(e => t.includes(e.event_type)).length;
-  const per100 = (n: number) => (total.km > 0 ? (n / total.km) * 100 : null);
+  const score = f.plate === 'all' ? (scores.length ? scores.reduce((s, r) => s + (r.score ?? 0), 0) / scores.length : null) : rankScore(total, TARGET_KML);
 
   const cards: [string, string, any][] = [
     ['Km rodado', fmt(total.km, 0), Route], ['Velocidade média', fmt(total.avgSpeed, 1), GaugeIcon], ['Odômetro', fmt(total.odometer, 0), Hash],
@@ -107,29 +104,15 @@ export function StatisticsPanel() {
         </div>
         <div className="space-y-4">
           <Card className="bg-card border-border"><CardHeader><CardTitle className="text-base">Metas</CardTitle></CardHeader><CardContent className="grid grid-cols-2 md:grid-cols-3">
-            <Gauge kind="meta" label="Tempo em movimento" value={total.movingPct} sub="do tempo com motor ligado" />
-            <Gauge kind="meta" label="Eficiência km/L" value={total.kml != null ? Math.min(100, (total.kml / TARGET_KML) * 100) : null} sub={`meta ${TARGET_KML} km/L`} />
+            {GOAL_LABELS.map(label => <Gauge key={label} kind="meta" label={label} value={null} />)}
           </CardContent></Card>
           <Card className="bg-card border-border"><CardHeader><CardTitle className="text-base">Limites</CardTitle></CardHeader><CardContent className="grid grid-cols-2 md:grid-cols-3">
-            <Gauge kind="limite" label="Parado com motor ligado" value={total.idlePct} sub={`${fmt(total.minutesIdle / 60, 1)} h no período`} />
-            <LimitCount label="Excesso de velocidade" n={count('speeding')} p={per100(count('speeding'))} />
-            <LimitCount label="Excesso de RPM" n={count('high_rpm', 'excessive_rpm')} p={per100(count('high_rpm', 'excessive_rpm'))} />
-            <LimitCount label="Frenagem brusca" n={count('harsh_brake', 'harsh_braking')} p={per100(count('harsh_brake', 'harsh_braking'))} />
-            <LimitCount label="Aceleração brusca" n={count('harsh_accel', 'harsh_acceleration')} p={per100(count('harsh_accel', 'harsh_acceleration'))} />
+            {LIMIT_LABELS.map((label, i) => <Gauge key={label} kind="limite" label={label} value={i === 0 && sel.length && sel.every(d => d.minutesIdle != null && d.minutesOn != null) ? timePercentage(total.minutesIdle, total.minutesOn) : null} />)}
           </CardContent></Card>
-          <p className="text-xs text-muted-foreground">Faixa Verde, Inércia, Turbo, Banguela e Piloto Automático ainda não são enviados pela TrucksControl na integração; aparecerão aqui quando liberados.</p>
+          <p className="text-xs text-muted-foreground">Percentuais indisponíveis: a TrucksControl ainda não fornece as durações dessas métricas na integração. Contagens de eventos não equivalem a tempo de infração.</p>
         </div>
       </div>)}
     </div>
   );
 }
 
-function LimitCount({ label, n, p }: { label: string; n: number; p: number | null }) {
-  return (
-    <div className="flex flex-col items-center text-center p-2">
-      <p className="text-xs font-medium text-foreground min-h-8">{label}</p>
-      <p className={`text-3xl font-bold ${n > 0 ? 'text-destructive' : 'text-primary'}`}>{n}</p>
-      <p className="text-[10px] text-muted-foreground">{p == null ? 'eventos' : `${fmt(p, 2)} a cada 100 km`}</p>
-    </div>
-  );
-}

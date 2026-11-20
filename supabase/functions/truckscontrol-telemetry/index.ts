@@ -1,6 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { gunzipSync, strFromU8 } from "npm:fflate@0.8.2";
 import pako from "npm:pako@2.1.0";
+import { authenticateCronRequest } from '../_shared/cron-auth.ts';
+import { authenticateSync } from '../_shared/request-auth.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -850,13 +852,18 @@ const handler = async (req: Request): Promise<Response> => {
 
 // Agendador automático tem limite de 5s: responde na hora e processa em segundo plano.
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method === "POST") {
     const body = await req.clone().json().catch(() => ({}));
     if (body?.source === "cron") {
+      const failure = authenticateCronRequest(req);
+      if (failure) return failure;
       // @ts-ignore EdgeRuntime existe no runtime das funções
       EdgeRuntime.waitUntil(handler(req).then((r) => r.text()).then((t) => console.log("[cron] done", t.slice(0, 300))).catch((e) => console.error("[cron] failed", String(e))));
       return new Response(JSON.stringify({ accepted: true }), { status: 202, headers: { "Content-Type": "application/json" } });
     }
   }
+  const failure = await authenticateSync(req);
+  if (failure) return new Response('Unauthorized', { status: failure.status, headers: corsHeaders });
   return handler(req);
 });

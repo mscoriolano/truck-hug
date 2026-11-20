@@ -1501,6 +1501,36 @@ export type Database = {
           },
         ]
       }
+      telemetry_report_sync: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          imported: number
+          last_error: string | null
+          report_day: string
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          imported?: number
+          last_error?: string | null
+          report_day: string
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          imported?: number
+          last_error?: string | null
+          report_day?: string
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       telemetry_settings: {
         Row: {
           created_at: string
@@ -2143,6 +2173,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_telemetry_report: {
+        Args: { p_day: string; p_force?: boolean }
+        Returns: boolean
+      }
       has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
     }

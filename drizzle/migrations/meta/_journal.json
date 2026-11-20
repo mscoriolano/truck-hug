@@ -8,6 +8,20 @@
       "when": 1795010593916,
       "tag": "0000_restrict_rls_to_staff",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795175162554,
+      "tag": "0001_daily_report_sync_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795175462923,
+      "tag": "0002_report_cooldown_policy",
+      "breakpoints": true
     }
   ]
 }

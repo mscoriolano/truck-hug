@@ -3,6 +3,9 @@ import { strFromU8 } from "npm:fflate@0.8.2";
 import pako from "npm:pako@2.1.0";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { parseRelatorio } from "./parse.ts";
+import { authenticateCronRequest } from '../_shared/cron-auth.ts';
+import { authenticateSync } from '../_shared/request-auth.ts';
+import { reportDay, reportComplete } from '../_shared/syncPolicy.ts';
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -25,11 +28,21 @@ function decode(bytes: Uint8Array): string {
 
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const expectedDay = reportDay(new Date());
+  let claimed = false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !key) return json({ success: false, error: 'Configuração ausente' }, 500);
+  const supabase = createClient(url, key);
   try {
+    const input = await req.clone().json().catch(() => ({}));
+    const { data: lock, error: lockError } = await supabase.rpc('claim_telemetry_report', { p_day: expectedDay, p_force: input.source !== 'automatic' });
+    if (lockError) throw lockError;
+    if (!lock) return json({ success: true, skipped: true, report_day: expectedDay });
+    claimed = true;
     const user = Deno.env.get("TRUCKSCONTROL_USER");
     const pass = Deno.env.get("TRUCKSCONTROL_PASSWORD");
-    if (!user || !pass) return json({ success: false, error: "Credenciais não configuradas" }, 500);
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    if (!user || !pass) throw new Error('Credenciais não configuradas');
 
     const xmlReq = `<?xml version="1.0" encoding="UTF-8"?>
 <RequestTelemetriaRelatorio>
@@ -52,19 +65,22 @@ const handler = async (req: Request): Promise<Response> => {
     ]).finally(() => clearTimeout(timer));
 
     const reports = parseRelatorio(text);
-    console.log("[telemetria-relatorio] relatórios:", reports.length, "preview:", text.slice(0, 300).replace(/<senha>.*?<\/senha>/g, ""));
-    if (!reports.length) return json({ success: true, imported: 0, message: "Nenhum relatório disponível (D-1)", raw: text.slice(0, 500) });
+    if (/<codigo>\s*7\s*<\/codigo>/i.test(text)) throw new Error('TrucksControl código 7: aguardar bloqueio de 60 minutos');
+    console.log("[telemetria-relatorio] relatórios:", reports.length);
+    if (!reports.length) throw new Error('Nenhum relatório D-1 disponível; nova tentativa em 30 minutos');
 
-    const { data: tel } = await supabase.from("vehicle_telemetry").select("vehicle_id, vehicle_plate, truckscontrol_id");
+    const { data: tel, error: telError } = await supabase.from("vehicle_telemetry").select("vehicle_id, vehicle_plate, truckscontrol_id");
+    if (telError) throw telError;
     const byVei = new Map<string, any>();
     for (const t of tel || []) if (t.truckscontrol_id) byVei.set(String(t.truckscontrol_id), t);
 
-    const fallbackDate = new Date(Date.now() - 86400_000 - 3 * 3600_000).toISOString().slice(0, 10);
+    const fallbackDate = expectedDay;
     let imported = 0, notFound = 0;
     for (const r of reports) {
       const v = byVei.get(r.veiID);
       if (!v?.vehicle_id) { notFound++; continue; }
       const day = r.date || fallbackDate;
+      if (day !== expectedDay) { notFound++; continue; }
       const ts = `${day}T12:00:00-03:00`;
       // Motorista predominante do dia (das leituras do rastreador)
       const { data: drv } = await supabase.from("vehicle_can_data").select("driver_name")
@@ -81,28 +97,39 @@ const handler = async (req: Request): Promise<Response> => {
         rpm: r.rpmMedio, speed: r.velMedia, total_time_minutes: r.totalMotorLig ?? r.utilizacao,
         raw_data: { source: "telemetria_relatorio", report_date: day, ...r },
       };
-      // Idempotente: remove relatório do mesmo dia/veículo antes de inserir
-      await supabase.from("vehicle_can_data").delete()
-        .eq("vehicle_id", v.vehicle_id).eq("data_timestamp", ts).contains("raw_data", { source: "telemetria_relatorio" });
-      const { error } = await supabase.from("vehicle_can_data").insert(row);
+      // Update in place: a failed retry must never remove a previously saved report.
+      const { data: existing, error: lookupError } = await supabase.from('vehicle_can_data').select('id')
+        .eq('vehicle_id', v.vehicle_id).eq('data_timestamp', ts).contains('raw_data', { source: 'telemetria_relatorio' }).maybeSingle();
+      if (lookupError) throw lookupError;
+      const { error } = existing ? await supabase.from('vehicle_can_data').update(row).eq('id', existing.id) : await supabase.from('vehicle_can_data').insert(row);
       if (error) console.error("[telemetria-relatorio] insert", error.message); else imported++;
     }
-    return json({ success: true, imported, notFound, total: reports.length });
+    const complete = reportComplete(reports.length, imported, notFound);
+    const { error: stateError } = await supabase.from('telemetry_report_sync').update({ status: complete ? 'completed' : 'pending', imported, completed_at: complete ? new Date().toISOString() : null, last_error: complete ? null : `Importação incompleta: ${imported}/${reports.length}; não vinculados: ${notFound}` }).eq('report_day', expectedDay);
+    if (stateError) throw stateError;
+    return json({ success: complete, imported, notFound, total: reports.length, report_day: expectedDay });
   } catch (e) {
     console.error("[telemetria-relatorio] error", String(e));
+    if (claimed) await supabase.from('telemetry_report_sync').update({ status: 'pending', last_error: String(e instanceof Error ? e.message : e) }).eq('report_day', expectedDay);
     return json({ success: false, error: String(e instanceof Error ? e.message : e) }, 200);
   }
 };
 
 // Agendador automático tem limite de 5s: responde na hora e processa em segundo plano.
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+  if (req.method !== 'POST') return json({ error: 'Método inválido' }, 405);
   if (req.method === "POST") {
     const body = await req.clone().json().catch(() => ({}));
     if (body?.source === "cron") {
+      const failure = authenticateCronRequest(req);
+      if (failure) return failure;
       // @ts-ignore EdgeRuntime existe no runtime das funções
       EdgeRuntime.waitUntil(handler(req).then((r) => r.text()).then((t) => console.log("[cron] done", t.slice(0, 300))).catch((e) => console.error("[cron] failed", String(e))));
-      return new Response(JSON.stringify({ accepted: true }), { status: 202, headers: { "Content-Type": "application/json" } });
+      return json({ accepted: true }, 202);
     }
   }
+  const failure = await authenticateSync(req);
+  if (failure) return json({ error: 'Acesso não autorizado' }, failure.status);
   return handler(req);
 });
