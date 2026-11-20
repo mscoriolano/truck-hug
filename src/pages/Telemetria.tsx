@@ -21,6 +21,8 @@ import { FuelCurvePanel } from '@/components/telemetry/FuelCurvePanel';
 import { StatisticsPanel } from '@/components/telemetry/StatisticsPanel';
 import { FuelSummaryPanel } from '@/components/telemetry/FuelSummaryPanel';
 import { TelemetryHistoryPanel } from '@/components/telemetry/TelemetryHistoryPanel';
+import { IdlePanel } from '@/components/telemetry/IdlePanel';
+import { FleetStatusDialog, type FleetStatus } from '@/components/telemetry/FleetStatusDialog';
 
 
 // Normaliza placas para comparação (remove traços e espaços)
@@ -95,6 +97,7 @@ export default function Telemetria() {
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>();
   const [activeTab, setActiveTab] = useState('consumo'); 
   const [alertsDialogOpen, setAlertsDialogOpen] = useState(false);
+  const [statusDialog, setStatusDialog] = useState<FleetStatus | null>(null);
 
 
   // --- ESTATÍSTICAS ---
@@ -326,13 +329,15 @@ export default function Telemetria() {
              ].map((c, i) => (
                 <Card key={i} className={`bg-[#0f172a] border-slate-800 cursor-pointer hover:border-slate-600 transition-all ${filterStatus === c.filter ? `ring-1 ring-opacity-50` : ''}`} onClick={() => {
                     setFilterStatus(c.filter as any);
-                    if (c.filter === 'alerts') setAlertsDialogOpen(true);
+                    if (c.filter === 'alerts') setAlertsDialogOpen(true); else setStatusDialog(c.filter as FleetStatus);
                 }}>
                     <CardHeader className="pb-2"><CardTitle className="text-xs text-slate-400 uppercase flex items-center gap-2"><c.icon className={`w-3 h-3 ${c.color}`}/> {c.label}</CardTitle></CardHeader>
                     <CardContent><div className={`text-2xl font-bold ${c.color}`}>{c.val}</div>{c.filter === 'alerts' && <p className="text-[10px] text-slate-500 mt-1">Clique para ver a lista</p>}</CardContent>
                 </Card>
              ))}
         </div>
+
+        <FleetStatusDialog status={statusDialog} onClose={() => setStatusDialog(null)} vehicles={(telemetryData || []) as any} />
 
         <AlertsDrilldownDialog
           open={alertsDialogOpen}
@@ -532,7 +537,7 @@ export default function Telemetria() {
           </div>
         )}
 
-        {activeTab === 'ociosidade' && <Card className="border-slate-800 bg-[#0f172a] text-white p-10 text-center text-slate-500">Visualização Padrão</Card>}
+        {activeTab === 'ociosidade' && <div className="animate-in fade-in zoom-in-95"><IdlePanel vehicles={(telemetryData || []) as any} /></div>}
       </div>
     </MainLayout>
   );

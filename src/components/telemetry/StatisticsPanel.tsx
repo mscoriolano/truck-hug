@@ -4,11 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Gauge as GaugeIcon, Route, Fuel, Clock, Hash, X } from 'lucide-react';
 import { useReportDays } from '@/hooks/useReportDays';
-import { aggregate, rankScore } from '@/lib/fleetStats';
+import { aggregate } from '@/lib/fleetStats';
 import { PanelFilters } from './PanelFilters';
 import { DEFAULT_PERCENT_TARGET, GOAL_LABELS, LIMIT_LABELS, gaugePosition, timePercentage } from '@/lib/statisticsGauges';
 
-const TARGET_KML = 2.2;
 const fmt = (v: number | null | undefined, d = 2) => (v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: d }));
 
 function Gauge({ label, value, target = DEFAULT_PERCENT_TARGET, kind }: { label: string; value: number | null; target?: number; kind: 'meta' | 'limite' }) {
@@ -40,12 +39,12 @@ export function StatisticsPanel() {
   const ranking = useMemo(() => {
     const rows = [...new Set(byDriver.map(d => d.plate))].map(p => {
       const a = aggregate(byDriver.filter(d => d.plate === p));
-      return { plate: p, a, score: rankScore(a, TARGET_KML) };
+      return { plate: p, a, score: null as number | null };
     });
-    return rows.sort((x, y) => (y.score ?? -1) - (x.score ?? -1));
+    return rows.sort((x, y) => (y.a.kml ?? -1) - (x.a.kml ?? -1));
   }, [byDriver]);
-  const scores = ranking.filter(r => r.score != null);
-  const score = f.plate === 'all' ? (scores.length ? scores.reduce((s, r) => s + (r.score ?? 0), 0) / scores.length : null) : rankScore(total, TARGET_KML);
+  // Official TrucksControl score (0–100) depends on time-in-band rules not yet delivered by the integration.
+  const score: number | null = null;
 
   const cards: [string, string, any][] = [
     ['Km rodado', fmt(total.km, 0), Route], ['Velocidade média', fmt(total.avgSpeed, 1), GaugeIcon], ['Odômetro', fmt(total.odometer, 0), Hash],
@@ -70,9 +69,9 @@ export function StatisticsPanel() {
                 <p className="text-xl font-bold text-foreground">{f.plate === 'all' ? 'Todos' : f.plate}</p>
                 {f.plate !== 'all' && <Button size="sm" variant="ghost" className="px-0 h-6" onClick={() => setF(s => ({ ...s, plate: 'all' }))}><X className="w-3 h-3 mr-1" />Ver todos</Button>}
               </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Pontuação (0–10)</p>
-                <p className="text-3xl font-bold text-primary">{fmt(score)}</p>
+              <div className="flex gap-6 text-right">
+                <div><p className="text-xs text-muted-foreground">Pontuação (0–100)</p><p className="text-3xl font-bold text-primary">{fmt(score)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Pontos a melhorar</p><p className="text-3xl font-bold text-destructive">{score == null ? '—' : fmt(100 - score)}</p></div>
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -99,7 +98,7 @@ export function StatisticsPanel() {
                 {!ranking.length && <tr><td colSpan={9} className="text-center text-muted-foreground py-6">Sem relatórios no período.</td></tr>}
               </tbody>
             </table>
-            <p className="text-[10px] text-muted-foreground mt-2">Clique na linha para analisar só o veículo. Nota: 80% eficiência de km/L (meta {TARGET_KML}) + 20% tempo sem ociosidade.</p>
+            <p className="text-[10px] text-muted-foreground mt-2">Clique na linha para analisar só o veículo. Ordenado por km/L. A nota oficial (0–100, regras do Grupo Padrão TrucksControl) depende dos tempos por faixa de giro, que a integração ainda não recebe — por isso não exibimos nota estimada.</p>
           </CardContent></Card>
         </div>
         <div className="space-y-4">
