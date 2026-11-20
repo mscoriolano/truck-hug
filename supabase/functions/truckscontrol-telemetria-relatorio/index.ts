@@ -5,7 +5,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { parseRelatorio } from "./parse.ts";
 import { authenticateCronRequest } from '../_shared/cron-auth.ts';
 import { authenticateSync } from '../_shared/request-auth.ts';
-import { reportDay, reportComplete } from '../_shared/syncPolicy.ts';
+import { reportDay, reportComplete, reportDue } from '../_shared/syncPolicy.ts';
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -36,7 +36,7 @@ const handler = async (req: Request): Promise<Response> => {
   const supabase = createClient(url, key);
   try {
     const input = await req.clone().json().catch(() => ({}));
-    const { data: lock, error: lockError } = await supabase.rpc('claim_telemetry_report', { p_day: expectedDay, p_force: input.source !== 'automatic' });
+    const { data: lock, error: lockError } = await supabase.rpc('claim_telemetry_report', { p_day: expectedDay, p_force: input.source !== 'automatic' && input.source !== 'cron' });
     if (lockError) throw lockError;
     if (!lock) return json({ success: true, skipped: true, report_day: expectedDay });
     claimed = true;
@@ -124,6 +124,7 @@ Deno.serve(async (req: Request) => {
     if (body?.source === "cron") {
       const failure = authenticateCronRequest(req);
       if (failure) return failure;
+      if (!reportDue(new Date())) return json({ accepted: false, reason: 'antes das 05:00 BRT' }, 200);
       // @ts-ignore EdgeRuntime existe no runtime das funções
       EdgeRuntime.waitUntil(handler(req).then((r) => r.text()).then((t) => console.log("[cron] done", t.slice(0, 300))).catch((e) => console.error("[cron] failed", String(e))));
       return json({ accepted: true }, 202);
