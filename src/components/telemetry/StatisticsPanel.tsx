@@ -6,59 +6,64 @@ import { Gauge as GaugeIcon, Route, Fuel, Clock, Hash, X } from "lucide-react";
 import { useReportDays } from "@/hooks/useReportDays";
 import { aggregate, rankScore } from "@/lib/fleetStats";
 import { PanelFilters } from "./PanelFilters";
-import {
-  DEFAULT_PERCENT_TARGET,
-  GOAL_LABELS,
-  LIMIT_LABELS,
-  gaugePosition,
-  timePercentage,
-} from "@/lib/statisticsGauges";
+import { DEFAULT_PERCENT_TARGET, GOAL_LABELS, LIMIT_LABELS, gaugePosition } from "@/lib/statisticsGauges";
 
 const fmt = (v: number | null | undefined, d = 2) =>
   v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d });
 
+// Metas padrão do Grupo Padrão TrucksControl (0% ou 100% conforme o indicador)
+const GOAL_TARGETS: Record<string, number> = {
+  "Inércia (Indicadores)": 0,
+  "Faixa Extra Econômica": 0,
+  "Faixa Verde 1": 0,
+  "Faixa Verde 2": 0,
+  "Turbo Ideal": 100,
+  "Carga Motor Ideal": 100,
+};
+
 function Gauge({
   label,
   value,
-  target = DEFAULT_PERCENT_TARGET,
+  target,
   kind,
 }: {
   label: string;
   value: number | null;
-  target?: number;
+  target: number;
   kind: "meta" | "limite";
 }) {
   const c = Math.PI * 40;
   const dash = (gaugePosition(value ?? 0) / 100) * c;
   const angle = Math.PI * (1 - gaugePosition(target) / 100);
-  const x = 50 + 40 * Math.cos(angle),
-    y = 50 - 40 * Math.sin(angle);
+  const x = 50 + 40 * Math.cos(angle);
+  const y = 50 - 40 * Math.sin(angle);
+  const isAvailable = value != null;
+
   return (
     <div className="flex flex-col items-center text-center p-2 min-w-0">
-      <p className="text-xs font-medium min-h-12">{label}</p>
+      <p className="text-xs font-medium min-h-12 flex items-center justify-center">{label}</p>
       <p className="text-[10px] text-muted-foreground mb-2">
-        {kind === "meta" ? "Meta" : "Limite"}: {fmt(target)}% | Valor:{" "}
-        {value == null ? "Indisponível" : `${fmt(value)}%`}
+        {kind === "meta" ? "Meta" : "Limite"}: {fmt(target)}% | Valor: {isAvailable ? `${fmt(value)}%` : "Indisponível"}
       </p>
       <svg
         viewBox="0 0 100 68"
         className="w-full max-w-36"
         role="img"
-        aria-label={`${label}: ${value == null ? "indisponível" : `${fmt(value)}%`}`}
+        aria-label={`${label}: ${isAvailable ? `${fmt(value)}%` : "indisponível"}`}
       >
         <path d="M10 50 A40 40 0 0 1 90 50" fill="none" className="stroke-muted" strokeWidth="10" />
-        {value != null && (
+        {isAvailable && (
           <path
             d="M10 50 A40 40 0 0 1 90 50"
             fill="none"
-            className={kind === "limite" && value > target ? "stroke-destructive" : "stroke-primary"}
+            className={kind === "limite" && (value ?? 0) > target ? "stroke-destructive" : "stroke-emerald-500"}
             strokeWidth="10"
             strokeDasharray={`${dash} ${c}`}
           />
         )}
         <circle cx={x} cy={y} r="3" className="fill-foreground" />
         <text x="50" y="48" textAnchor="middle" className="fill-foreground" fontSize="13" fontWeight="700">
-          {value == null ? "—" : `${fmt(value)}%`}
+          {isAvailable ? `${fmt(value)}%` : "—"}
         </text>
         <text x="7" y="65" className="fill-muted-foreground" fontSize="9">
           0%
@@ -96,8 +101,10 @@ export function StatisticsPanel() {
     return rows.sort((x, y) => (y.score ?? -1) - (x.score ?? -1) || (y.a.kml ?? -1) - (x.a.kml ?? -1));
   }, [byDriver]);
 
-  // Pontuação oficial da visão selecionada (frota total ou veículo individual)
   const score = rankScore(total);
+
+  // Valor real de ociosidade calculado da frota ou do veículo selecionado
+  const idleValue = total.idlePct != null ? Math.round(total.idlePct * 100) / 100 : null;
 
   const cards: [string, string, any][] = [
     ["Km rodado", fmt(total.km, 0), Route],
@@ -121,6 +128,7 @@ export function StatisticsPanel() {
           />
         </CardHeader>
       </Card>
+
       {isLoading ? (
         <p className="text-muted-foreground text-center py-10">Carregando…</p>
       ) : (
@@ -155,6 +163,7 @@ export function StatisticsPanel() {
                     </div>
                   </div>
                 </div>
+
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {cards.map(([l, v, I]) => (
                     <div key={l} className="rounded-lg border border-border bg-background p-3">
@@ -168,6 +177,7 @@ export function StatisticsPanel() {
                 </div>
               </CardContent>
             </Card>
+
             <Card className="bg-card border-border">
               <CardContent className="pt-4 overflow-x-auto">
                 <table className="w-full text-sm">
@@ -218,6 +228,7 @@ export function StatisticsPanel() {
               </CardContent>
             </Card>
           </div>
+
           <div className="space-y-4">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -225,10 +236,17 @@ export function StatisticsPanel() {
               </CardHeader>
               <CardContent className="grid grid-cols-2 md:grid-cols-3">
                 {GOAL_LABELS.map((label) => (
-                  <Gauge key={label} kind="meta" label={label} value={null} />
+                  <Gauge
+                    key={label}
+                    kind="meta"
+                    label={label}
+                    target={GOAL_TARGETS[label] ?? DEFAULT_PERCENT_TARGET}
+                    value={null}
+                  />
                 ))}
               </CardContent>
             </Card>
+
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="text-base">Limites</CardTitle>
@@ -239,18 +257,15 @@ export function StatisticsPanel() {
                     key={label}
                     kind="limite"
                     label={label}
-                    value={
-                      i === 0 && sel.length && sel.every((d) => d.minutesIdle != null && d.minutesOn != null)
-                        ? timePercentage(total.minutesIdle, total.minutesOn)
-                        : null
-                    }
+                    target={DEFAULT_PERCENT_TARGET}
+                    value={i === 0 ? idleValue : null}
                   />
                 ))}
               </CardContent>
             </Card>
             <p className="text-xs text-muted-foreground">
-              Percentuais indisponíveis: a TrucksControl ainda não fornece as durações dessas métricas na integração.
-              Contagens de eventos não equivalem a tempo de infração.
+              Métricas de rotação e inércia dependem da requisição de faixas de CAN (&lt;RequestTelemetria&gt;) da
+              TrucksControl.
             </p>
           </div>
         </div>
