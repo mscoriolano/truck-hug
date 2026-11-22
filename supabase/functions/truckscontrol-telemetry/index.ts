@@ -1,13 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { gunzipSync, strFromU8 } from "npm:fflate@0.8.2";
 import pako from "npm:pako@2.1.0";
-import { authenticateCronRequest } from '../_shared/cron-auth.ts';
-import { authenticateSync } from '../_shared/request-auth.ts';
+import { authenticateCronRequest } from "../_shared/cron-auth.ts";
+import { authenticateSync } from "../_shared/request-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 // ============ XML helpers ============
@@ -20,10 +19,7 @@ function parseXmlValue(xml: string, tagName: string): string | null {
 
 function parseXmlArray(xml: string, itemTagName: string): string[] {
   const items: string[] = [];
-  const regex = new RegExp(
-    `<${itemTagName}[\\s\\S]*?<\\/${itemTagName}>|<${itemTagName}[^>]*\\/>`,
-    "gi",
-  );
+  const regex = new RegExp(`<${itemTagName}[\\s\\S]*?<\\/${itemTagName}>|<${itemTagName}[^>]*\\/>`, "gi");
   let match;
   while ((match = regex.exec(xml)) !== null) {
     items.push(match[0]);
@@ -59,8 +55,12 @@ function maskPasswordInXml(xml: string): string {
 }
 
 // ============ Decompression ============
-function looksLikeZip(bytes: Uint8Array): boolean { return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04; }
-function looksLikeGzip(bytes: Uint8Array): boolean { return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b; }
+function looksLikeZip(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+}
+function looksLikeGzip(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
 
 function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boolean } {
   if (!bytes.length) return { text: "", wasZip: false };
@@ -83,7 +83,11 @@ function decodeTrucksControlBody(bytes: Uint8Array): { text: string; wasZip: boo
     return { text: "", wasZip: true };
   }
   if (looksLikeGzip(bytes)) {
-    try { return { text: strFromU8(gunzipSync(bytes)), wasZip: true }; } catch { return { text: "", wasZip: true }; }
+    try {
+      return { text: strFromU8(gunzipSync(bytes)), wasZip: true };
+    } catch {
+      return { text: "", wasZip: true };
+    }
   }
   return { text: strFromU8(bytes), wasZip: false };
 }
@@ -142,7 +146,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (!TRUCKSCONTROL_USER || !TRUCKSCONTROL_PASSWORD || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       return new Response(JSON.stringify({ success: false, error: "Configuração ausente" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -202,28 +207,34 @@ const handler = async (req: Request): Promise<Response> => {
       } catch (e) {
         console.error(`[truckscontrol-telemetry] attempt ${attempt + 1} error:`, String(e));
         if (attempt < MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
     }
 
     if (!fetchSuccess || !responseText) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: "Não foi possível obter dados da API TrucksControl",
-        timestamp: new Date().toISOString(),
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Não foi possível obter dados da API TrucksControl",
+          timestamp: new Date().toISOString(),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // Check API error
     if (responseText.includes("<erro>") || responseText.includes("<ErrorRequest")) {
       const errMsg = parseXmlValue(responseText, "erro") || "Erro da API TrucksControl";
       const codigo = parseXmlValue(responseText, "codigo");
-      return new Response(JSON.stringify({
-        success: false,
-        error: codigo ? `${errMsg} (código ${codigo})` : errMsg,
-        timestamp: new Date().toISOString(),
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: codigo ? `${errMsg} (código ${codigo})` : errMsg,
+          timestamp: new Date().toISOString(),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // ============ Parse MensagemCB nodes ============
@@ -231,45 +242,48 @@ const handler = async (req: Request): Promise<Response> => {
     console.log(`[truckscontrol-telemetry] mensagens recebidas: ${messageNodes.length}`);
 
     if (!messageNodes.length) {
-      return new Response(JSON.stringify({
-        success: true, timestamp: new Date().toISOString(),
-        messagesReceived: 0, telemetryUpdated: 0, alertsCreated: 0, journeyEventsCreated: 0, behaviorEventsCreated: 0,
-        message: "Nenhuma mensagem nova",
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          timestamp: new Date().toISOString(),
+          messagesReceived: 0,
+          telemetryUpdated: 0,
+          alertsCreated: 0,
+          journeyEventsCreated: 0,
+          behaviorEventsCreated: 0,
+          message: "Nenhuma mensagem nova",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // ============ Pre-load caches ============
-    const { data: allVehicles } = await supabase
-      .from("vehicles")
-      .select("id, plate, truckscontrol_id, mileage");
-    
-    const vehicleByTcId = new Map<string, { id: string; plate: string; truckscontrol_id: string | null; mileage: number }>();
-    const vehicleByPlate = new Map<string, { id: string; plate: string; truckscontrol_id: string | null; mileage: number }>();
+    const { data: allVehicles } = await supabase.from("vehicles").select("id, plate, truckscontrol_id, mileage");
+
+    const vehicleByTcId = new Map<
+      string,
+      { id: string; plate: string; truckscontrol_id: string | null; mileage: number }
+    >();
+    const vehicleByPlate = new Map<
+      string,
+      { id: string; plate: string; truckscontrol_id: string | null; mileage: number }
+    >();
     for (const v of allVehicles || []) {
       if (v.truckscontrol_id) vehicleByTcId.set(v.truckscontrol_id, v);
       vehicleByPlate.set(v.plate, v);
     }
 
-    const { data: allDrivers } = await supabase
-      .from("drivers")
-      .select("id, name, truckscontrol_id");
+    const { data: allDrivers } = await supabase.from("drivers").select("id, name, truckscontrol_id");
     const driverByTcId = new Map<string, { id: string; name: string }>();
     for (const d of allDrivers || []) {
       if (d.truckscontrol_id) driverByTcId.set(d.truckscontrol_id, d);
     }
 
     // Load geofence zones
-    const { data: geofenceZones } = await supabase
-      .from("geofence_zones")
-      .select("*")
-      .eq("is_active", true);
+    const { data: geofenceZones } = await supabase.from("geofence_zones").select("*").eq("is_active", true);
 
     // Load telemetry settings for thresholds
-    const { data: telSettings } = await supabase
-      .from("telemetry_settings")
-      .select("*")
-      .limit(1)
-      .maybeSingle();
+    const { data: telSettings } = await supabase.from("telemetry_settings").select("*").limit(1).maybeSingle();
 
     const speedLimitHighway = telSettings?.speed_limit_highway || 80;
     const speedLimitUrban = telSettings?.speed_limit_urban || 60;
@@ -291,7 +305,13 @@ const handler = async (req: Request): Promise<Response> => {
     const vehicleMileageUpdates: { id: string; mileage: number }[] = [];
     const driverVehicleLinks: { driverId: string; driverName: string; vehicleId: string; vehiclePlate: string }[] = [];
     // Track journey starts/ends for compliance
-    const complianceEvents: { driverId: string; driverName: string; eventType: string; timestamp: string; vehicleId?: string }[] = [];
+    const complianceEvents: {
+      driverId: string;
+      driverName: string;
+      eventType: string;
+      timestamp: string;
+      vehicleId?: string;
+    }[] = [];
 
     for (const msgXml of messageNodes) {
       const mIdStr = parseXmlValue(msgXml, "mId") || parseXmlValue(msgXml, "mID") || "0";
@@ -300,12 +320,13 @@ const handler = async (req: Request): Promise<Response> => {
 
       const veiID = parseXmlValue(msgXml, "veiID");
       const placa = parseXmlValue(msgXml, "placa");
-      
+
       let vehicle = veiID ? vehicleByTcId.get(veiID) : undefined;
       if (!vehicle && placa) vehicle = vehicleByPlate.get(placa);
-      
+
       if (!vehicle) {
-        if (debugEnabled) console.log(`[truckscontrol-telemetry] veículo não encontrado: veiID=${veiID} placa=${placa}`);
+        if (debugEnabled)
+          console.log(`[truckscontrol-telemetry] veículo não encontrado: veiID=${veiID} placa=${placa}`);
         continue;
       }
 
@@ -330,7 +351,7 @@ const handler = async (req: Request): Promise<Response> => {
       const evtG = parseXmlValue(msgXml, "evtG");
       // <lt>: litros no tanque (sensor de nível/CAN), opcional
       const ltRaw = parseXmlValue(msgXml, "lt");
-      const ltNumber = ltRaw ? Number(ltRaw.replace(',', '.')) : NaN;
+      const ltNumber = ltRaw ? Number(ltRaw.replace(",", ".")) : NaN;
       const tankLiters = Number.isFinite(ltNumber) && ltNumber >= 0 ? ltNumber : null;
 
       // Event flags
@@ -357,7 +378,7 @@ const handler = async (req: Request): Promise<Response> => {
       // ============ Telemetry upsert ============
       const existing = telemetryUpserts.get(vehicle.id);
       const currentMId = existing?.last_mld || 0;
-      
+
       if (!existing || mId > currentMId) {
         telemetryUpserts.set(vehicle.id, {
           vehicle_id: vehicle.id,
@@ -433,7 +454,15 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
         // Track for auto-compliance
-        if (driverId && (eventType === "journey_start" || eventType === "journey_end" || eventType === "meal_start" || eventType === "meal_end" || eventType === "rest_start" || eventType === "rest_end")) {
+        if (
+          driverId &&
+          (eventType === "journey_start" ||
+            eventType === "journey_end" ||
+            eventType === "meal_start" ||
+            eventType === "meal_end" ||
+            eventType === "rest_start" ||
+            eventType === "rest_end")
+        ) {
           complianceEvents.push({
             driverId,
             driverName: driverName || "Motorista",
@@ -445,7 +474,7 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // ============ DRIVING BEHAVIOR EVENTS ============
-      
+
       // 🔋 Battery monitoring - alert when below 24V
       if (bat !== null && bat > 0 && bat < 24) {
         behaviorEvents.push({
@@ -629,7 +658,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // ============ Execute batch operations ============
-    
+
     // 1. Upsert telemetry
     for (const [_vid, telData] of telemetryUpserts) {
       const { error: upsertErr } = await supabase
@@ -655,7 +684,7 @@ const handler = async (req: Request): Promise<Response> => {
       if (mileageProcessed.has(upd.id)) continue;
       mileageProcessed.add(upd.id);
       const maxMileage = vehicleMileageUpdates
-        .filter(u => u.id === upd.id)
+        .filter((u) => u.id === upd.id)
         .reduce((max, u) => Math.max(max, u.mileage), 0);
       await supabase.from("vehicles").update({ mileage: maxMileage }).eq("id", upd.id);
     }
@@ -684,7 +713,7 @@ const handler = async (req: Request): Promise<Response> => {
           .gte("event_timestamp", new Date(Date.now() - 5 * 60 * 1000).toISOString())
           .limit(1)
           .maybeSingle();
-        
+
         if (!recent) {
           const { error: alertErr } = await supabase.from("telemetry_alerts").insert(alert);
           if (!alertErr) alertsCreated++;
@@ -703,7 +732,7 @@ const handler = async (req: Request): Promise<Response> => {
           .gte("event_timestamp", new Date(Date.now() - 2 * 60 * 1000).toISOString())
           .limit(1)
           .maybeSingle();
-        
+
         if (!recentBehavior) {
           const { error: bevtErr } = await supabase.from("driving_behavior_events").insert(evt);
           if (!bevtErr) behaviorEventsCreated++;
@@ -716,14 +745,12 @@ const handler = async (req: Request): Promise<Response> => {
     for (const link of driverVehicleLinks) {
       if (linkedVehicles.has(link.vehicleId)) continue;
       linkedVehicles.add(link.vehicleId);
-      
+
       // Update driver's current_vehicle
-      if (link.driverId && link.driverId.length > 10) { // ensure it's a UUID
-        await supabase
-          .from("drivers")
-          .update({ current_vehicle: link.vehiclePlate })
-          .eq("id", link.driverId);
-        
+      if (link.driverId && link.driverId.length > 10) {
+        // ensure it's a UUID
+        await supabase.from("drivers").update({ current_vehicle: link.vehiclePlate }).eq("id", link.driverId);
+
         // Check if active assignment already exists
         const { data: existingAssignment } = await supabase
           .from("driver_vehicle_assignments")
@@ -743,16 +770,14 @@ const handler = async (req: Request): Promise<Response> => {
             .eq("is_active", true);
 
           // Create new assignment
-          await supabase
-            .from("driver_vehicle_assignments")
-            .insert({
-              driver_id: link.driverId,
-              driver_name: link.driverName,
-              vehicle_id: link.vehicleId,
-              vehicle_plate: link.vehiclePlate,
-              is_active: true,
-              assignment_code: "AUTO-TELEMETRY",
-            });
+          await supabase.from("driver_vehicle_assignments").insert({
+            driver_id: link.driverId,
+            driver_name: link.driverName,
+            vehicle_id: link.vehicleId,
+            vehicle_plate: link.vehiclePlate,
+            is_active: true,
+            assignment_code: "AUTO-TELEMETRY",
+          });
         }
         driversLinked++;
       }
@@ -769,14 +794,14 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       for (const [did, events] of driverEvents) {
-        const journeyStarts = events.filter(e => e.eventType === "journey_start");
-        const journeyEnds = events.filter(e => e.eventType === "journey_end");
-        const mealStarts = events.filter(e => e.eventType === "meal_start");
-        
+        const journeyStarts = events.filter((e) => e.eventType === "journey_start");
+        const journeyEnds = events.filter((e) => e.eventType === "journey_end");
+        const mealStarts = events.filter((e) => e.eventType === "meal_start");
+
         // If there's a journey_start, upsert compliance record for today
         if (journeyStarts.length > 0) {
           const journeyDate = new Date(journeyStarts[0].timestamp).toISOString().split("T")[0];
-          
+
           const complianceData: any = {
             driver_id: did,
             driver_name: journeyStarts[0].driverName,
@@ -810,60 +835,68 @@ const handler = async (req: Request): Promise<Response> => {
             .maybeSingle();
 
           if (existingCompliance) {
-            await supabase
-              .from("driver_journey_compliance")
-              .update(complianceData)
-              .eq("id", existingCompliance.id);
+            await supabase.from("driver_journey_compliance").update(complianceData).eq("id", existingCompliance.id);
           } else {
-            await supabase
-              .from("driver_journey_compliance")
-              .insert(complianceData);
+            await supabase.from("driver_journey_compliance").insert(complianceData);
           }
           complianceUpdated++;
         }
       }
     }
 
-    console.log(`[truckscontrol-telemetry] finished: ${messageNodes.length} msgs, ${telemetryUpdated} tel, ${journeyEventsCreated} journey, ${alertsCreated} alerts, ${behaviorEventsCreated} behavior, ${driversLinked} drivers, ${complianceUpdated} compliance, maxMld=${maxMldReceived}`);
+    console.log(
+      `[truckscontrol-telemetry] finished: ${messageNodes.length} msgs, ${telemetryUpdated} tel, ${journeyEventsCreated} journey, ${alertsCreated} alerts, ${behaviorEventsCreated} behavior, ${driversLinked} drivers, ${complianceUpdated} compliance, maxMld=${maxMldReceived}`,
+    );
 
-    return new Response(JSON.stringify({
-      success: true,
-      timestamp: new Date().toISOString(),
-      messagesReceived: messageNodes.length,
-      telemetryUpdated,
-      alertsCreated,
-      journeyEventsCreated,
-      behaviorEventsCreated,
-      driversLinked,
-      complianceUpdated,
-      maxMld: maxMldReceived,
-      message: `OK: ${messageNodes.length} mensagens. ${telemetryUpdated} veículos, ${journeyEventsCreated} jornada, ${alertsCreated} alertas, ${behaviorEventsCreated} comportamento, ${driversLinked} motoristas vinculados, ${complianceUpdated} compliance.`,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
+    return new Response(
+      JSON.stringify({
+        success: true,
+        timestamp: new Date().toISOString(),
+        messagesReceived: messageNodes.length,
+        telemetryUpdated,
+        alertsCreated,
+        journeyEventsCreated,
+        behaviorEventsCreated,
+        driversLinked,
+        complianceUpdated,
+        maxMld: maxMldReceived,
+        message: `OK: ${messageNodes.length} mensagens. ${telemetryUpdated} veículos, ${journeyEventsCreated} jornada, ${alertsCreated} alertas, ${behaviorEventsCreated} comportamento, ${driversLinked} motoristas vinculados, ${complianceUpdated} compliance.`,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (e) {
     console.error("[truckscontrol-telemetry] unhandled error:", String(e));
-    return new Response(JSON.stringify({
-      success: false,
-      error: String(e),
-      timestamp: new Date().toISOString(),
-    }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: String(e),
+        timestamp: new Date().toISOString(),
+      }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 };
 
-// Agendador automático tem limite de 5s: responde na hora e processa em segundo plano.
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-  if (req.method === "POST") {
-    const body = await req.clone().json().catch(() => ({}));
-    if (body?.source === "cron") {
-      const failure = authenticateCronRequest(req);
-      if (failure) return failure;
-      // @ts-ignore EdgeRuntime existe no runtime das funções
-      EdgeRuntime.waitUntil(handler(req).then((r) => r.text()).then((t) => console.log("[cron] done", t.slice(0, 300))).catch((e) => console.error("[cron] failed", String(e))));
-      return new Response(JSON.stringify({ accepted: true }), { status: 202, headers: { "Content-Type": "application/json" } });
-    }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Método inválido" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
+
+  const body = await req
+    .clone()
+    .json()
+    .catch(() => ({}));
+  if (body?.source === "cron") {
+    const failure = authenticateCronRequest(req);
+    if (failure) return failure;
+    return await handler(req);
+  }
+
   const failure = await authenticateSync(req);
-  if (failure) return new Response('Unauthorized', { status: failure.status, headers: corsHeaders });
-  return handler(req);
+  if (failure) return new Response("Unauthorized", { status: failure.status, headers: corsHeaders });
+  return await handler(req);
 });
