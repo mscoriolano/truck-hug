@@ -1,26 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, LayersControl } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { useVehicleTelemetry, useSyncTelemetry } from '@/hooks/useTelemetry';
-import { useVehicles } from '@/hooks/useVehicles';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { RefreshCw, MapPin, Search, Clock, ExternalLink } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useEffect, useMemo, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, LayersControl } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { useVehicleTelemetry } from "@/hooks/useTelemetry";
+import { useVehicles } from "@/hooks/useVehicles";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { RefreshCw, MapPin, Search, Clock, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-// --- 1. ÍCONE ESTILO TRUCKS (COM ETIQUETA AMARELA) ---
+interface VehicleMapProps {
+  selectedPlate?: string | null;
+}
+
+// Ícone do caminhão
 const createTruckIcon = (count: number, status: string, plate: string) => {
-  let color = '#ef4444'; // Vermelho (Desligado)
-  if (status === 'moving') color = '#22c55e'; // Verde
-  else if (status === 'idle') color = '#eab308'; // Amarelo
+  let color = "#ef4444"; // Vermelho (Desligado)
+  if (status === "moving")
+    color = "#22c55e"; // Verde
+  else if (status === "idle") color = "#eab308"; // Amarelo
 
-  // Se for agrupado, mostra a contagem, senão a placa
   const labelText = count > 1 ? `... (+${count})` : plate;
-  
-  // Caminhão sempre visível, mas com indicador de pilha se for grupo
-  const showClusterBase = count > 1 ? 'block' : 'none';
+  const showClusterBase = count > 1 ? "block" : "none";
 
   const html = `
     <div style="position: relative; width: 60px; height: 50px; display: flex; flex-direction: column; align-items: center;">
@@ -53,75 +55,103 @@ const createTruckIcon = (count: number, status: string, plate: string) => {
     </div>
   `;
 
-  return L.divIcon({ className: '', html: html, iconSize: [60, 50], iconAnchor: [30, 25], popupAnchor: [0, -20] });
+  return L.divIcon({ className: "", html: html, iconSize: [60, 50], iconAnchor: [30, 25], popupAnchor: [0, -20] });
 };
 
-// --- 2. COMPONENTE DE ENDEREÇO ---
-const VehicleAddress = ({ lat, lng }: { lat: number, lng: number }) => {
-  const [address, setAddress] = useState<string>('Localizando...');
+// Componente de Endereço Reverso
+const VehicleAddress = ({ lat, lng }: { lat: number; lng: number }) => {
+  const [address, setAddress] = useState<string>("Localizando...");
 
   useEffect(() => {
     let active = true;
     const fetchAddress = async () => {
       try {
-        await new Promise(r => setTimeout(r, 200)); 
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+        await new Promise((r) => setTimeout(r, 200));
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        );
         const data = await res.json();
-        
+
         if (active && data.address) {
-          const road = data.address.road || '';
-          const suburb = data.address.suburb || data.address.neighbourhood || '';
-          const city = data.address.city || data.address.town || data.address.municipality || '';
-          const state = data.address.state || '';
-          setAddress(`${state} - ${city.toUpperCase()} - ${road ? 'Próx. ' + road : suburb}`);
+          const road = data.address.road || "";
+          const suburb = data.address.suburb || data.address.neighbourhood || "";
+          const city = data.address.city || data.address.town || data.address.municipality || "";
+          const state = data.address.state || "";
+          setAddress(`${state} - ${city.toUpperCase()} - ${road ? "Próx. " + road : suburb}`);
         } else if (active) {
           setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
         }
-      } catch (e) {
+      } catch {
         if (active) setAddress(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
       }
     };
     fetchAddress();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [lat, lng]);
 
-  return <div style={{ marginBottom: '5px', color: '#000', fontWeight: 'bold' }}>{address}</div>;
+  return <div style={{ marginBottom: "5px", color: "#000", fontWeight: "bold" }}>{address}</div>;
 };
 
-// --- 3. POPUP ---
+// Popup do Veículo
 const VehiclePopupContent = ({ vehicle }: { vehicle: any }) => {
   return (
-    <div style={{ fontFamily: 'Arial, Verdana', fontSize: '11px', color: '#666', width: '420px', textAlign: 'left' }}>
-      <div style={{ marginBottom: '8px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
-         <span style={{ fontSize: '13px', fontWeight: 'bold', color: 'Blue' }}>Veículo: {vehicle.vehicle_plate}</span>
+    <div style={{ fontFamily: "Arial, Verdana", fontSize: "11px", color: "#666", width: "420px", textAlign: "left" }}>
+      <div style={{ marginBottom: "8px", borderBottom: "1px solid #eee", paddingBottom: "4px" }}>
+        <span style={{ fontSize: "13px", fontWeight: "bold", color: "Blue" }}>Veículo: {vehicle.vehicle_plate}</span>
       </div>
-      <div style={{ display: 'flex' }}>
-        <div style={{ float: 'left', marginRight: '10px', width: '140px' }}>
-          <div style={{ fontWeight: 'bold' }}>Placa</div>
-          <div style={{ marginBottom: '4px', color: '#000' }}>{vehicle.vehicle_plate}</div>
-          <div style={{ fontWeight: 'bold' }}>Modelo</div>
-          <div style={{ marginBottom: '4px', color: '#000' }}>{vehicle.model}</div>
-          <div style={{ fontWeight: 'bold' }}>Identificador</div>
-          <div style={{ marginBottom: '4px', color: '#000' }}>{vehicle.identifier}</div>
+      <div style={{ display: "flex" }}>
+        <div style={{ float: "left", marginRight: "10px", width: "140px" }}>
+          <div style={{ fontWeight: "bold" }}>Placa</div>
+          <div style={{ marginBottom: "4px", color: "#000" }}>{vehicle.vehicle_plate}</div>
+          <div style={{ fontWeight: "bold" }}>Modelo</div>
+          <div style={{ marginBottom: "4px", color: "#000" }}>{vehicle.model}</div>
+          <div style={{ fontWeight: "bold" }}>Identificador</div>
+          <div style={{ marginBottom: "4px", color: "#000" }}>{vehicle.identifier}</div>
         </div>
-        <div style={{ float: 'left', paddingLeft: '10px', borderLeft: '1px dotted black', width: '230px' }}>
-          <div style={{ fontWeight: 'bold' }}>Data/Hora</div>
-          <div style={{ marginBottom: '4px', color: 'Blue', fontWeight: 'bold' }}>{new Date(vehicle.received_at).toLocaleString()}</div>
-          <div style={{ fontWeight: 'bold' }}>Localização</div>
-          <VehicleAddress lat={vehicle.lat} lng={vehicle.lng} />
-          <div style={{ fontWeight: 'bold' }}>Ignição</div>
-          <div style={{ marginBottom: '4px', color: '#000', fontWeight: 'bold' }}>
-             <span style={{ color: vehicle.ignition_on ? (vehicle.speed > 0 ? 'green' : '#eab308') : 'red' }}>
-                {vehicle.ignition_on ? (vehicle.speed > 0 ? 'Ligada (Movimento)' : 'Ligada (Parado)') : 'Desligada'}
-             </span>
+        <div style={{ float: "left", paddingLeft: "10px", borderLeft: "1px dotted black", width: "230px" }}>
+          <div style={{ fontWeight: "bold" }}>Data/Hora</div>
+          <div style={{ marginBottom: "4px", color: "Blue", fontWeight: "bold" }}>
+            {new Date(vehicle.received_at).toLocaleString()}
           </div>
-          <div style={{ fontSize: '14px', paddingTop: '4px', fontWeight: 'bold', color: '#000' }}>
+          <div style={{ fontWeight: "bold" }}>Localização</div>
+          <VehicleAddress lat={vehicle.lat} lng={vehicle.lng} />
+          <div style={{ fontWeight: "bold" }}>Ignição</div>
+          <div style={{ marginBottom: "4px", color: "#000", fontWeight: "bold" }}>
+            <span style={{ color: vehicle.ignition_on ? (vehicle.speed > 0 ? "green" : "#eab308") : "red" }}>
+              {vehicle.ignition_on ? (vehicle.speed > 0 ? "Ligada (Movimento)" : "Ligada (Parado)") : "Desligada"}
+            </span>
+          </div>
+          <div style={{ fontSize: "14px", paddingTop: "4px", fontWeight: "bold", color: "#000" }}>
             {vehicle.speed} Km/h
           </div>
         </div>
       </div>
-      <div style={{ clear: 'both', width: '100%', paddingTop: '8px', marginTop: '5px', borderTop: '1px solid #eee', textAlign: 'center' }}>
-        <a href={`https://www.google.com.br/maps/place/${vehicle.lat},${vehicle.lng}`} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: 'blue', cursor: 'pointer', textDecoration: 'none', fontWeight: 'bold' }}>
+      <div
+        style={{
+          clear: "both",
+          width: "100%",
+          paddingTop: "8px",
+          marginTop: "5px",
+          borderTop: "1px solid #eee",
+          textAlign: "center",
+        }}
+      >
+        <a
+          href={`https://www.google.com.br/maps/place/${vehicle.lat},${vehicle.lng}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            color: "blue",
+            cursor: "pointer",
+            textDecoration: "none",
+            fontWeight: "bold",
+          }}
+        >
           <ExternalLink size={12} /> Visualizar no Google Maps
         </a>
       </div>
@@ -129,98 +159,117 @@ const VehiclePopupContent = ({ vehicle }: { vehicle: any }) => {
   );
 };
 
-// Handler de Zoom
+// Controlador de Posição e Zoom do Leaflet
+function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center && center[0] && center[1]) {
+      map.setView(center, zoom, { animate: true });
+    }
+  }, [center, zoom, map]);
+  return null;
+}
+
 function ZoomHandler({ onZoom }: { onZoom: (z: number) => void }) {
-  const map = useMapEvents({
-    zoomend: () => onZoom(map.getZoom()),
+  useMapEvents({
+    zoomend: (e) => onZoom(e.target.getZoom()),
   });
   return null;
 }
 
-// Controlador de Posição
-function MapController({ center }: { center: [number, number] }) {
-  const map = useMap();
-  useEffect(() => { 
-    if (center) map.setView(center, map.getZoom()); 
-  }, [center]); 
-  return null;
-}
-
-export function VehicleMap() {
+export function VehicleMap({ selectedPlate }: VehicleMapProps = {}) {
   const { data: telemetryData, refetch, isLoading } = useVehicleTelemetry();
   const { data: vehiclesRegistry } = useVehicles();
-  const syncTelemetry = useSyncTelemetry();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  // SUAS COORDENADAS FIXAS:
-  const [mapCenter, setMapCenter] = useState<[number, number]>([-19.52880, -42.63600]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [mapCenter, setMapCenter] = useState<[number, number]>([-19.5288, -42.636]);
   const [currentZoom, setCurrentZoom] = useState(14);
-  const [countdown, setCountdown] = useState(30); // INICIA COM 30s
+  const [countdown, setCountdown] = useState(30);
   const [lastUpdate, setLastUpdate] = useState(new Date());
 
-  // --- ALTERAÇÃO SOLICITADA: Timer de 30 segundos ---
+  // Centraliza no veículo selecionado vindo do drilldown "VER"
+  useEffect(() => {
+    if (!selectedPlate || !telemetryData || !Array.isArray(telemetryData)) return;
+    const clean = selectedPlate.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+    const target = telemetryData.find((t) => {
+      const p = (t.vehicle_plate || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      return p === clean;
+    });
+
+    if (
+      target &&
+      !isNaN(Number(target.latitude)) &&
+      !isNaN(Number(target.longitude)) &&
+      Number(target.latitude) !== 0
+    ) {
+      setMapCenter([Number(target.latitude), Number(target.longitude)]);
+      setCurrentZoom(16);
+      setSearchTerm(target.vehicle_plate || selectedPlate);
+    }
+  }, [selectedPlate, telemetryData]);
+
+  // Timer seguro: consulta APENAS o banco interno (sem chamada externa à TrucksControl)
   useEffect(() => {
     const timer = setInterval(() => {
-      setCountdown(p => {
+      setCountdown((p) => {
         if (p <= 1) {
-          syncTelemetry.mutateAsync({ debug: false }).then(() => { refetch(); setLastUpdate(new Date()); });
-          return 30; // RESETA PARA 30s
+          refetch();
+          setLastUpdate(new Date());
+          return 30;
         }
         return p - 1;
       });
     }, 1000);
-    
-    // Sincronização extra a cada 30s
-    const syncer = setInterval(() => {
-       syncTelemetry.mutateAsync({ debug: false }).then(() => refetch());
-    }, 30000);
 
-    return () => { clearInterval(timer); clearInterval(syncer); };
-  }, [syncTelemetry, refetch]);
+    return () => clearInterval(timer);
+  }, [refetch]);
 
-  // --- LÓGICA DE AGRUPAMENTO (CLUSTER) ---
+  // Agrupamento dos veículos
   const groupedVehicles = useMemo(() => {
     if (!telemetryData || !Array.isArray(telemetryData)) return [];
 
-    const valid = telemetryData.filter(t => t && !isNaN(Number(t.latitude)) && !isNaN(Number(t.longitude)) && Number(t.latitude) !== 0);
+    const valid = telemetryData.filter(
+      (t) => t && !isNaN(Number(t.latitude)) && !isNaN(Number(t.longitude)) && Number(t.latitude) !== 0,
+    );
 
-    const enriched = valid.map(t => {
-        const plateClean = (t.vehicle_plate || '').replace(/[^a-zA-Z0-9]/g, '');
-        
-        const registry = (vehiclesRegistry || []).find(v => {
-            const regPlate = (v.license_plate || '').replace(/[^a-zA-Z0-9]/g, '');
-            return regPlate === plateClean || v.id === t.vehicle_id;
+    const enriched = valid
+      .map((t) => {
+        const plateClean = (t.vehicle_plate || "").replace(/[^a-zA-Z0-9]/g, "");
+
+        const registry = (vehiclesRegistry || []).find((v) => {
+          const regPlate = (v.license_plate || "").replace(/[^a-zA-Z0-9]/g, "");
+          return regPlate === plateClean || v.id === t.vehicle_id;
         });
 
         const isIgnitionOn = !!t.ignition_on;
         const isMoving = (t.speed || 0) > 0;
-        let status = 'off';
-        if (isIgnitionOn) status = isMoving ? 'moving' : 'idle';
+        let status = "off";
+        if (isIgnitionOn) status = isMoving ? "moving" : "idle";
 
         return {
-            ...t,
-            lat: Number(t.latitude),
-            lng: Number(t.longitude),
-            model: registry?.model || 'Não Identificado',
-            identifier: registry?.brand || 'FROTA PRÓPRIA',
-            status
+          ...t,
+          lat: Number(t.latitude),
+          lng: Number(t.longitude),
+          model: registry?.model || "Não Identificado",
+          identifier: registry?.brand || "FROTA PRÓPRIA",
+          status,
         };
-    }).filter(v => searchTerm === '' || v.vehicle_plate.toLowerCase().includes(searchTerm.toLowerCase()));
+      })
+      .filter((v) => searchTerm === "" || v.vehicle_plate.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    // Sensibilidade do Cluster baseada no Zoom
-    let precision = 0.0001; 
-    if (currentZoom <= 17) precision = 0.002; 
+    let precision = 0.0001;
+    if (currentZoom <= 17) precision = 0.002;
     if (currentZoom <= 15) precision = 0.01;
     if (currentZoom <= 12) precision = 0.1;
 
     const groups: { [key: string]: typeof enriched } = {};
-    
-    enriched.forEach(v => {
-        const latKey = Math.floor(v.lat / precision);
-        const lngKey = Math.floor(v.lng / precision);
-        const key = `${latKey}_${lngKey}`;
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(v);
+
+    enriched.forEach((v) => {
+      const latKey = Math.floor(v.lat / precision);
+      const lngKey = Math.floor(v.lng / precision);
+      const key = `${latKey}_${lngKey}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(v);
     });
 
     return Object.values(groups);
@@ -232,76 +281,97 @@ export function VehicleMap() {
         <div className="flex flex-col md:flex-row justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-slate-800 text-lg">
-                <MapPin className="h-5 w-5 text-blue-600" />
-                Monitoramento da Frota
+              <MapPin className="h-5 w-5 text-blue-600" />
+              Monitoramento da Frota
             </CardTitle>
             <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-[#22c55e]" /> Em movimento</div>
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-[#eab308]" /> Ocioso</div>
-              <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-[#ef4444]" /> Desligado</div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#22c55e]" /> Em movimento
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#eab308]" /> Ocioso
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#ef4444]" /> Desligado
+              </div>
             </div>
           </div>
           <div className="flex gap-2 items-center">
-             <div className="bg-white border px-3 py-1.5 rounded text-[10px] font-bold text-slate-600 shadow-sm flex items-center gap-2">
-                <Clock className="w-3 h-3 text-blue-500" />
-                {countdown}s | {lastUpdate.toLocaleTimeString()}
-             </div>
-             <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-                <Input placeholder="Buscar placa..." className="pl-9 h-9 w-40 bg-white" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-             </div>
-             <Button variant="outline" size="icon" onClick={() => { refetch(); setCountdown(30); setLastUpdate(new Date()); }} className="h-9 w-9 bg-white">
-                <RefreshCw className={cn("h-4 w-4 text-blue-600", isLoading && "animate-spin")} />
-             </Button>
+            <div className="bg-white border px-3 py-1.5 rounded text-[10px] font-bold text-slate-600 shadow-sm flex items-center gap-2">
+              <Clock className="w-3 h-3 text-blue-500" />
+              {countdown}s | {lastUpdate.toLocaleTimeString()}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <Input
+                placeholder="Buscar placa..."
+                className="pl-9 h-9 w-40 bg-white"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => {
+                refetch();
+                setCountdown(30);
+                setLastUpdate(new Date());
+              }}
+              className="h-9 w-9 bg-white"
+              title="Atualizar posições locais"
+            >
+              <RefreshCw className={cn("h-4 w-4 text-blue-600", isLoading && "animate-spin")} />
+            </Button>
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="p-0">
         <div className="h-[700px] w-full relative bg-slate-100">
-            <MapContainer center={mapCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
-                <LayersControl position="topright">
-                    <LayersControl.BaseLayer checked name="Mapa">
-                        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    </LayersControl.BaseLayer>
-                    <LayersControl.BaseLayer name="Satélite">
-                        <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
-                    </LayersControl.BaseLayer>
-                </LayersControl>
-                
-                <ZoomHandler onZoom={setCurrentZoom} />
-                <MapController center={mapCenter} />
-                
-                {groupedVehicles.map((group, index) => {
-                    const mainVehicle = group[0];
-                    const count = group.length;
+          <MapContainer center={mapCenter} zoom={currentZoom} style={{ height: "100%", width: "100%" }}>
+            <LayersControl position="topright">
+              <LayersControl.BaseLayer checked name="Mapa">
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              </LayersControl.BaseLayer>
+              <LayersControl.BaseLayer name="Satélite">
+                <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
+              </LayersControl.BaseLayer>
+            </LayersControl>
 
-                    return (
-                        <Marker 
-                            key={`${mainVehicle.id}-${index}`} 
-                            position={[mainVehicle.lat, mainVehicle.lng]} 
-                            icon={createTruckIcon(count, mainVehicle.status, mainVehicle.vehicle_plate)}
-                        >
-                            <Popup minWidth={420} maxWidth={450}>
-                                {count > 1 ? (
-                                    <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-                                        <div className="bg-yellow-100 p-2 text-xs font-bold text-center border-b mb-2 text-black sticky top-0 z-10">
-                                            {count} Equipamentos nesta região
-                                        </div>
-                                        {group.map((v, idx) => (
-                                            <div key={v.id} className={idx > 0 ? "border-t pt-3 mt-3" : ""}>
-                                                <VehiclePopupContent vehicle={v} />
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <VehiclePopupContent vehicle={mainVehicle} />
-                                )}
-                            </Popup>
-                        </Marker>
-                    );
-                })}
-            </MapContainer>
+            <ZoomHandler onZoom={setCurrentZoom} />
+            <MapController center={mapCenter} zoom={currentZoom} />
+
+            {groupedVehicles.map((group, index) => {
+              const mainVehicle = group[0];
+              const count = group.length;
+
+              return (
+                <Marker
+                  key={`${mainVehicle.id}-${index}`}
+                  position={[mainVehicle.lat, mainVehicle.lng]}
+                  icon={createTruckIcon(count, mainVehicle.status, mainVehicle.vehicle_plate)}
+                >
+                  <Popup minWidth={420} maxWidth={450}>
+                    {count > 1 ? (
+                      <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
+                        <div className="bg-yellow-100 p-2 text-xs font-bold text-center border-b mb-2 text-black sticky top-0 z-10">
+                          {count} Equipamentos nesta região
+                        </div>
+                        {group.map((v, idx) => (
+                          <div key={v.id} className={idx > 0 ? "border-t pt-3 mt-3" : ""}>
+                            <VehiclePopupContent vehicle={v} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <VehiclePopupContent vehicle={mainVehicle} />
+                    )}
+                  </Popup>
+                </Marker>
+              );
+            })}
+          </MapContainer>
         </div>
       </CardContent>
     </Card>
