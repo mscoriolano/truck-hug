@@ -475,7 +475,7 @@ export default function Telemetria() {
 
         {activeTab === "mapa" && (
           <div className="animate-in fade-in zoom-in-95">
-            <VehicleMap />
+            <VehicleMap selectedPlate={selectedMapPlate} />
           </div>
         )}
 
