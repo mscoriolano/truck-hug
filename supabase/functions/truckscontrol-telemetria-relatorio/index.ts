@@ -179,13 +179,31 @@ Deno.serve(async (req: Request) => {
     .clone()
     .json()
     .catch(() => ({}));
+
   if (body?.source === "cron") {
     const failure = authenticateCronRequest(req);
     if (failure) return failure;
     if (!reportDue(new Date())) return json({ accepted: false, reason: "antes das 05:00 BRT" }, 200);
-    return await handler(req);
+
+    // Responde ao pg_net em < 50ms para evitar o timeout de 5 segundos
+    // e executa o processamento em segundo plano
+    // @ts-ignore EdgeRuntime está presente no ambiente de execução da Cloud
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(
+        handler(req)
+          .then((res) => res.text())
+          .then((t) => console.log("[telemetria-relatorio cron concluído]", t.slice(0, 200)))
+          .catch((e) => console.error("[telemetria-relatorio cron erro]", String(e))),
+      );
+    } else {
+      handler(req).catch((e) => console.error("[telemetria-relatorio cron erro]", String(e)));
+    }
+
+    return json({ accepted: true, mode: "background" }, 202);
   }
 
+  // Chamada manual do botão no painel continua síncrona
   const failure = await authenticateSync(req);
   if (failure) return json({ error: "Acesso não autorizado" }, failure.status);
   return await handler(req);
