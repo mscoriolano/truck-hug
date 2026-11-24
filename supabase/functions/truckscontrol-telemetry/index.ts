@@ -890,12 +890,31 @@ Deno.serve(async (req: Request) => {
     .clone()
     .json()
     .catch(() => ({}));
+
   if (body?.source === "cron") {
     const failure = authenticateCronRequest(req);
     if (failure) return failure;
-    return await handler(req);
+
+    // Responde ao agendador em < 50ms (limite dele é 5 segundos)
+    // e continua a busca na TrucksControl em segundo plano
+    const task = handler(req)
+      .then((res) => res.text())
+      .then((t) => console.log("[truckscontrol-telemetry cron concluído]", t.slice(0, 200)))
+      .catch((e) => console.error("[truckscontrol-telemetry cron erro]", String(e)));
+
+    // @ts-ignore EdgeRuntime existe no ambiente da Cloud
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(task);
+    }
+
+    return new Response(JSON.stringify({ accepted: true, mode: "background" }), {
+      status: 202,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
+  // Botão "Sincronizar" continua síncrono
   const failure = await authenticateSync(req);
   if (failure) return new Response("Unauthorized", { status: failure.status, headers: corsHeaders });
   return await handler(req);
