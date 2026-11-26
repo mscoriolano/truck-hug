@@ -152,7 +152,7 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // ============ Busca último mId ============
+    // Busca maior mId registrado
     let lastMld = 1;
     const { data: mldData } = await supabase
       .from("vehicle_telemetry")
@@ -178,7 +178,7 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       console.log(maskPasswordInXml(xmlRequest));
     }
 
-    // ============ Fetch ============
+    // Fetch
     let responseText = "";
     let fetchSuccess = false;
     let lastError = "";
@@ -226,7 +226,7 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       console.log(responseText.substring(0, 1500));
     }
 
-    // ============ Verificação de Erro na Resposta ============
+    // Verificação de Erro na Resposta
     const codigoErro = parseXmlValue(responseText, "codigo");
     const msgErro = parseXmlValue(responseText, "msg");
     if (codigoErro && codigoErro !== "0") {
@@ -243,22 +243,15 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       );
     }
 
-    // ============ Parse das Mensagens ============
-    const messageRegex = /<item\s+mId="([^"]+)"[^>]*>([\s\S]*?)<\/item>/gi;
+    // ============ Parse das Mensagens (MensagemCB, item ou mensagem) ============
+    const messageRegex = /<(?:MensagemCB|item|mensagem)(?: [^>]*)?>([\s\S]*?)<\/(?:MensagemCB|item|mensagem)>/gi;
     const messageNodes: Array<{ mId: string; content: string }> = [];
     let match;
     while ((match = messageRegex.exec(responseText)) !== null) {
-      messageNodes.push({ mId: match[1], content: match[2] });
-    }
-
-    // Fallback para tags simples <mensagem> ou <item> sem mId
-    if (messageNodes.length === 0) {
-      const fallbackRegex = /<(?:item|mensagem)[^>]*>([\s\S]*?)<\/(?:item|mensagem)>/gi;
-      let fMatch;
-      while ((fMatch = fallbackRegex.exec(responseText)) !== null) {
-        const mId = parseXmlValue(fMatch[1], "mId") || "0";
-        messageNodes.push({ mId, content: fMatch[1] });
-      }
+      const block = match[1];
+      const fullTag = match[0];
+      const mId = parseXmlValue(block, "mId") || parseXmlAttribute(fullTag, "mId") || "0";
+      messageNodes.push({ mId, content: block });
     }
 
     console.log(`[truckscontrol-telemetry] Mensagens parseadas: ${messageNodes.length}`);
@@ -276,9 +269,8 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       );
     }
 
-    // ============ Busca Veículos e Motoristas do Banco ============
+    // Busca Veículos e Zonas do Banco
     const { data: dbVehicles } = await supabase.from("vehicles").select("id, plate, truckscontrol_id");
-    const { data: dbDrivers } = await supabase.from("drivers").select("id, name, cpf, truckscontrol_id");
     const { data: geofenceZones } = await supabase.from("geofence_zones").select("*");
 
     const vehicleByPlate = new Map((dbVehicles || []).map((v) => [v.plate.toUpperCase().trim(), v]));
@@ -286,28 +278,14 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       (dbVehicles || []).filter((v) => v.truckscontrol_id).map((v) => [String(v.truckscontrol_id), v]),
     );
 
-    const driverByTcId = new Map(
-      (dbDrivers || []).filter((d) => d.truckscontrol_id).map((d) => [String(d.truckscontrol_id), d]),
-    );
-    const driverByName = new Map((dbDrivers || []).map((d) => [d.name.toLowerCase().trim(), d]));
-
-    // ============ Processamento das Mensagens ============
     let telemetryUpdated = 0;
     let alertsCreated = 0;
-    let journeyEventsCreated = 0;
     let behaviorEventsCreated = 0;
-    let driversLinked = 0;
-    let complianceUpdated = 0;
     let maxMldReceived = lastMld;
 
-    const telemetryRows: any[] = [];
     const historyRows: any[] = [];
     const alerts: any[] = [];
-    const journeyEvents: any[] = [];
     const behaviorEvents: any[] = [];
-    const complianceUpdates: any[] = [];
-
-    // Agrupa mensagens por veículo para atualizar a posição mais recente
     const latestByVehicle = new Map<string, any>();
 
     for (const node of messageNodes) {
@@ -331,9 +309,12 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       const ign = ignStr === "1" || ignStr?.toLowerCase() === "true" || ignStr?.toLowerCase() === "sim";
       const horimetro = parseXmlFloat(xml, "hor");
       const tensao = parseXmlFloat(xml, "ten");
-      const temperatura = parseXmlFloat(xml, "temp");
       const direcao = parseXmlInt(xml, "dir");
-      const locationName = parseXmlValue(xml, "des") || parseXmlValue(xml, "loc");
+      const mun = parseXmlValue(xml, "mun");
+      const uf = parseXmlValue(xml, "uf");
+      const rua = parseXmlValue(xml, "rua");
+      const locationName =
+        [rua, mun, uf].filter(Boolean).join(", ") || parseXmlValue(xml, "des") || parseXmlValue(xml, "loc");
 
       // Identifica veículo
       let vehicle = placa ? vehicleByPlate.get(placa) : null;
@@ -342,40 +323,19 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       }
       if (!vehicle) continue;
 
-      // Identifica motorista
-      const motID = parseXmlValue(xml, "motID");
-      const motNome = parseXmlValue(xml, "motNome") || parseXmlValue(xml, "mot");
-      let driver = motID ? driverByTcId.get(motID) : null;
-      if (!driver && motNome) {
-        driver = driverByName.get(motNome.toLowerCase().trim());
-      }
-      const driverId = driver?.id || null;
-      const driverName = driver?.name || motNome || null;
-
-      if (driverId) driversLinked++;
-
-      // Histórico de telemetria
+      // Histórico de telemetria compatível com a tabela telemetry_history
       historyRows.push({
         vehicle_id: vehicle.id,
         vehicle_plate: vehicle.plate,
-        driver_id: driverId,
-        driver_name: driverName,
         latitude: lat,
         longitude: lon,
         speed: vel,
-        rpm: rpm,
-        odometer: odm,
+        heading: direcao,
         ignition_on: ign,
-        engine_hours: horimetro,
-        battery_voltage: tensao,
-        engine_temp: temperatura,
-        direction: direcao,
-        location_name: locationName,
         gps_timestamp: dt || new Date().toISOString(),
-        raw_data: { mId: node.mId, veiID, motID, motNome },
       });
 
-      // Posição mais recente por veículo
+      // Posição mais recente por veículo (colunas estritas da tabela vehicle_telemetry)
       const existingLatest = latestByVehicle.get(vehicle.id);
       if (
         !existingLatest ||
@@ -384,8 +344,6 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
         latestByVehicle.set(vehicle.id, {
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
-          driver_id: driverId,
-          driver_name: driverName,
           truckscontrol_id: veiID || vehicle.truckscontrol_id,
           latitude: lat,
           longitude: lon,
@@ -394,23 +352,21 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
           odometer: odm,
           ignition_on: ign,
           engine_hours: horimetro,
-          battery_voltage: tensao,
-          engine_temp: temperatura,
-          direction: direcao,
+          heading: direcao,
           location_name: locationName,
+          municipality: mun,
+          state: uf,
           last_mld: node.mId,
           gps_timestamp: dt || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          received_at: new Date().toISOString(),
         });
       }
 
-      // 🚦 Eventos de Comportamento e Alertas
+      // Eventos de Velocidade
       if (vel > 90) {
         behaviorEvents.push({
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
-          driver_id: driverId,
-          driver_name: driverName,
           event_type: "speeding",
           severity: vel > 110 ? "critical" : "warning",
           latitude: lat,
@@ -425,12 +381,10 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
         alerts.push({
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
-          driver_id: driverId,
-          driver_name: driverName,
           alert_type: "speeding",
           severity: vel > 110 ? "critical" : "warning",
           title: `Excesso de velocidade: ${vel} km/h`,
-          message: `Veículo ${vehicle.plate} atingiu ${vel} km/h (limite: 90 km/h)${locationName ? ` em ${locationName}` : ""}`,
+          message: `Veículo ${vehicle.plate} a ${vel} km/h (limite 90 km/h)${locationName ? ` em ${locationName}` : ""}`,
           latitude: lat,
           longitude: lon,
           location_name: locationName,
@@ -438,37 +392,17 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
         });
       }
 
-      if (rpm && rpm > 2200) {
-        behaviorEvents.push({
-          vehicle_id: vehicle.id,
-          vehicle_plate: vehicle.plate,
-          driver_id: driverId,
-          driver_name: driverName,
-          event_type: "high_rpm",
-          severity: rpm > 2600 ? "critical" : "warning",
-          latitude: lat,
-          longitude: lon,
-          location_name: locationName,
-          speed: vel,
-          rpm: rpm,
-          event_timestamp: dt || new Date().toISOString(),
-          details: { rpm, limit: 2200 },
-        });
-      }
-
-      // Alertas nativos do XML da TrucksControl
+      // Alertas nativos do rastreador
       const aleStr = parseXmlValue(xml, "ale");
-      const aleDesc = parseXmlValue(xml, "aleDesc") || parseXmlValue(xml, "aleDes");
+      const aleDesc = parseXmlValue(xml, "aleDesc");
       if (aleStr && aleStr !== "0") {
         alerts.push({
           vehicle_id: vehicle.id,
           vehicle_plate: vehicle.plate,
-          driver_id: driverId,
-          driver_name: driverName,
-          alert_type: "tracker_alert",
+          alert_type: `tracker_code_${aleStr}`,
           severity: "warning",
           title: aleDesc || `Alerta do rastreador: código ${aleStr}`,
-          message: `Alerta código ${aleStr} recebido para ${vehicle.plate}${locationName ? ` em ${locationName}` : ""}`,
+          message: `Alerta código ${aleStr} para ${vehicle.plate}${locationName ? ` em ${locationName}` : ""}`,
           latitude: lat,
           longitude: lon,
           location_name: locationName,
@@ -476,83 +410,20 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
         });
       }
 
-      // ⏱️ Eventos de Jornada
-      const jorStr = parseXmlValue(xml, "jor");
-      const tfrID = parseXmlValue(xml, "tfrID");
-      if (driverId && (jorStr || tfrID)) {
-        journeyEvents.push({
-          driver_id: driverId,
-          vehicle_id: vehicle.id,
-          event_type: jorStr || tfrID || "telemetry_ping",
-          timestamp: dt || new Date().toISOString(),
-          location: locationName || `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-          raw_data: { jor: jorStr, tfrID, mId: node.mId },
-        });
-      }
-
-      // 🗺️ Geofencing
+      // Geofencing
       if (lat !== 0 && lon !== 0 && geofenceZones && geofenceZones.length > 0) {
         for (const zone of geofenceZones) {
           const distance = haversineDistance(lat, lon, Number(zone.latitude), Number(zone.longitude));
           const isInside = distance <= zone.radius_meters;
 
           if (!isInside && zone.alert_on_exit && zone.zone_type === "allowed") {
-            behaviorEvents.push({
-              vehicle_id: vehicle.id,
-              vehicle_plate: vehicle.plate,
-              driver_id: driverId,
-              driver_name: driverName,
-              event_type: "geofence_exit",
-              severity: "warning",
-              latitude: lat,
-              longitude: lon,
-              location_name: locationName,
-              speed: vel,
-              details: { zone_name: zone.name, distance_m: Math.round(distance), radius_m: zone.radius_meters },
-              event_timestamp: dt || new Date().toISOString(),
-            });
-
             alerts.push({
               vehicle_id: vehicle.id,
               vehicle_plate: vehicle.plate,
-              driver_id: driverId,
-              driver_name: driverName,
               alert_type: "geofence_violation",
               severity: "warning",
               title: `Fora da zona: ${zone.name}`,
-              message: `Veículo ${vehicle.plate} saiu da zona "${zone.name}" (${Math.round(distance)}m do centro)${locationName ? ` - ${locationName}` : ""}`,
-              latitude: lat,
-              longitude: lon,
-              location_name: locationName,
-              event_timestamp: dt || new Date().toISOString(),
-            });
-          }
-
-          if (isInside && zone.alert_on_enter && zone.zone_type === "restricted") {
-            behaviorEvents.push({
-              vehicle_id: vehicle.id,
-              vehicle_plate: vehicle.plate,
-              driver_id: driverId,
-              driver_name: driverName,
-              event_type: "geofence_enter_restricted",
-              severity: "critical",
-              latitude: lat,
-              longitude: lon,
-              location_name: locationName,
-              speed: vel,
-              details: { zone_name: zone.name, distance_m: Math.round(distance) },
-              event_timestamp: dt || new Date().toISOString(),
-            });
-
-            alerts.push({
-              vehicle_id: vehicle.id,
-              vehicle_plate: vehicle.plate,
-              driver_id: driverId,
-              driver_name: driverName,
-              alert_type: "geofence_violation",
-              severity: "critical",
-              title: `Zona restrita: ${zone.name}`,
-              message: `Veículo ${vehicle.plate} entrou na área restrita "${zone.name}"${locationName ? ` - ${locationName}` : ""}`,
+              message: `Veículo ${vehicle.plate} saiu da zona "${zone.name}"`,
               latitude: lat,
               longitude: lon,
               location_name: locationName,
@@ -563,9 +434,8 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       }
     }
 
-    // ============ Persistência no Banco ============
     // 1. Atualiza vehicle_telemetry (última posição por veículo)
-    for (const [vId, telRow] of latestByVehicle) {
+    for (const [, telRow] of latestByVehicle) {
       const { error: upsertErr } = await supabase.from("vehicle_telemetry").upsert(telRow, {
         onConflict: "vehicle_id",
       });
@@ -576,7 +446,7 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       }
     }
 
-    // 2. Histórico de Telemetria em lote
+    // 2. Histórico de Telemetria
     if (historyRows.length > 0) {
       const BATCH_SIZE = 50;
       for (let i = 0; i < historyRows.length; i += BATCH_SIZE) {
@@ -597,14 +467,8 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
       if (!behErr) behaviorEventsCreated = behaviorEvents.length;
     }
 
-    // 5. Jornada
-    if (journeyEvents.length > 0) {
-      const { error: jorErr } = await supabase.from("driver_journey_entries").insert(journeyEvents);
-      if (!jorErr) journeyEventsCreated = journeyEvents.length;
-    }
-
     console.log(
-      `[truckscontrol-telemetry] Concluído: ${telemetryUpdated} veículos atualizados, ${alertsCreated} alertas, ${behaviorEventsCreated} comportamento, ${maxMldReceived} maxMld.`,
+      `[truckscontrol-telemetry] Concluído: ${telemetryUpdated} veículos atualizados, ${alertsCreated} alertas, ${maxMldReceived} maxMld.`,
     );
 
     return new Response(
@@ -613,12 +477,9 @@ const handler = async (input: { veiID?: string; debug?: boolean } = {}): Promise
         messagesReceived: messageNodes.length,
         telemetryUpdated,
         alertsCreated,
-        journeyEventsCreated,
         behaviorEventsCreated,
-        driversLinked,
-        complianceUpdated,
         maxMld: maxMldReceived,
-        message: `OK: ${messageNodes.length} mensagens. ${telemetryUpdated} veículos, ${journeyEventsCreated} jornada, ${alertsCreated} alertas, ${behaviorEventsCreated} comportamento, ${driversLinked} motoristas vinculados, ${complianceUpdated} compliance.`,
+        message: `OK: ${messageNodes.length} mensagens parseadas. ${telemetryUpdated} veículos atualizados.`,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
@@ -644,39 +505,28 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const body = (await req.json().catch(() => ({}))) as {
-    source?: string;
-    veiID?: string;
-    debug?: boolean;
-  };
+  const rawBody = await req.text().catch(() => "");
+  let parsedBody: any = {};
+  try {
+    parsedBody = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    parsedBody = {};
+  }
 
-  if (body?.source === "cron") {
+  if (parsedBody?.source === "cron") {
     const failure = authenticateCronRequest(req);
     if (failure) return failure;
 
-    // Responde ao agendador em < 50ms (limite dele é 5 segundos)
-    // e continua a busca na TrucksControl em segundo plano passando o body já em memória
-    const task = handler(body)
-      .then((res) => res.text())
-      .then((t) => console.log("[truckscontrol-telemetry cron concluído]", t.slice(0, 200)))
-      .catch((e) => console.error("[truckscontrol-telemetry cron erro]", String(e)));
+    return await handler(parsedBody);
+  }
 
-    // @ts-ignore EdgeRuntime existe no ambiente da Cloud
-    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(task);
-    } else {
-      task.catch(console.error);
-    }
-
-    return new Response(JSON.stringify({ accepted: true, mode: "background" }), {
-      status: 202,
+  const failure = await authenticateSync(req);
+  if (failure) {
+    return new Response(JSON.stringify({ error: "Acesso não autorizado" }), {
+      status: failure.status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // Botão manual "Sincronizar" continua síncrono
-  const failure = await authenticateSync(req);
-  if (failure) return new Response("Unauthorized", { status: failure.status, headers: corsHeaders });
-  return await handler(body);
+  return await handler(parsedBody);
 });
