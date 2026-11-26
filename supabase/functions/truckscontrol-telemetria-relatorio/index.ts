@@ -190,21 +190,8 @@ Deno.serve(async (req: Request) => {
     if (failure) return failure;
     if (!reportDue(new Date())) return json({ accepted: false, reason: "antes das 05:00 BRT" }, 200);
 
-    // Responde ao agendador em < 50ms para evitar timeout e executa em segundo plano com p_force: false
-    // @ts-ignore EdgeRuntime está presente no ambiente de execução da Cloud
-    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(
-        handler(req, { force: false })
-          .then((res) => res.text())
-          .then((t) => console.log("[telemetria-relatorio cron concluído]", t.slice(0, 200)))
-          .catch((e) => console.error("[telemetria-relatorio cron erro]", String(e))),
-      );
-    } else {
-      handler(req, { force: false }).catch((e) => console.error("[telemetria-relatorio cron erro]", String(e)));
-    }
-
-    return json({ accepted: true, mode: "background" }, 202);
+    // Execução 100% síncrona igual ao clique manual (com force: false)
+    return await handler(req, { force: false });
   }
 
   // Chamada manual do botão no painel continua síncrona e com p_force: true
