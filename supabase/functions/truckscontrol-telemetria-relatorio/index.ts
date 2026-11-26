@@ -28,7 +28,7 @@ function decode(bytes: Uint8Array): string {
   return strFromU8(bytes);
 }
 
-const handler = async (req: Request): Promise<Response> => {
+const handler = async (req: Request, options: { force?: boolean } = {}): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   const expectedDay = reportDay(new Date());
   let claimed = false;
@@ -37,12 +37,17 @@ const handler = async (req: Request): Promise<Response> => {
   if (!url || !key) return json({ success: false, error: "Configuração ausente" }, 500);
   const supabase = createClient(url, key);
   try {
+    const force = options.force ?? false;
     const { data: lock, error: lockError } = await supabase.rpc("claim_telemetry_report", {
       p_day: expectedDay,
-      p_force: true,
+      p_force: force,
     });
     if (lockError) throw lockError;
-    if (!lock) return json({ success: true, skipped: true, report_day: expectedDay });
+    // Se o dia já foi concluído (status=completed) ou está em execução/bloqueio de 60m do Código 7, encerra sem chamar a TrucksControl
+    if (!lock) {
+      console.log(`[telemetria-relatorio] ignorado (dia ${expectedDay} já concluído ou bloqueado temporariamente)`);
+      return json({ success: true, skipped: true, report_day: expectedDay });
+    }
     claimed = true;
     const user = Deno.env.get("TRUCKSCONTROL_USER");
     const pass = Deno.env.get("TRUCKSCONTROL_PASSWORD");
@@ -54,7 +59,7 @@ const handler = async (req: Request): Promise<Response> => {
   <senha>${esc(pass)}</senha>
   <tID>1</tID>
 </RequestTelemetriaRelatorio>`;
-    console.log("[telemetria-relatorio] start");
+    console.log("[telemetria-relatorio] start (force:", force, ")");
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const text = await Promise.race([
@@ -185,26 +190,25 @@ Deno.serve(async (req: Request) => {
     if (failure) return failure;
     if (!reportDue(new Date())) return json({ accepted: false, reason: "antes das 05:00 BRT" }, 200);
 
-    // Responde ao pg_net em < 50ms para evitar o timeout de 5 segundos
-    // e executa o processamento em segundo plano
+    // Responde ao agendador em < 50ms para evitar timeout e executa em segundo plano com p_force: false
     // @ts-ignore EdgeRuntime está presente no ambiente de execução da Cloud
     if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
       // @ts-ignore
       EdgeRuntime.waitUntil(
-        handler(req)
+        handler(req, { force: false })
           .then((res) => res.text())
           .then((t) => console.log("[telemetria-relatorio cron concluído]", t.slice(0, 200)))
           .catch((e) => console.error("[telemetria-relatorio cron erro]", String(e))),
       );
     } else {
-      handler(req).catch((e) => console.error("[telemetria-relatorio cron erro]", String(e)));
+      handler(req, { force: false }).catch((e) => console.error("[telemetria-relatorio cron erro]", String(e)));
     }
 
     return json({ accepted: true, mode: "background" }, 202);
   }
 
-  // Chamada manual do botão no painel continua síncrona
+  // Chamada manual do botão no painel continua síncrona e com p_force: true
   const failure = await authenticateSync(req);
   if (failure) return json({ error: "Acesso não autorizado" }, failure.status);
-  return await handler(req);
+  return await handler(req, { force: true });
 });
