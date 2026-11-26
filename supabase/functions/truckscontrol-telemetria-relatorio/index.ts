@@ -5,7 +5,7 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { parseRelatorio } from "./parse.ts";
 import { authenticateCronRequest } from "../_shared/cron-auth.ts";
 import { authenticateSync } from "../_shared/request-auth.ts";
-import { reportDay, reportComplete, reportDue } from "../_shared/syncPolicy.ts";
+import { reportDay, reportDue } from "../_shared/syncPolicy.ts";
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -62,16 +62,13 @@ const handler = async (req: Request, options: { force?: boolean } = {}): Promise
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 110_000);
-    const tcRes = await fetch("https://service.truckscontrol.com.br/service.asmx/RequestTelemetriaRelatorio", {
+    const tcRes = await fetch("https://webservice.newrastreamentoonline.com.br", {
       method: "POST",
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Content-Type": "text/xml",
+        "User-Agent": "Mozilla/5.0",
       },
-      body: `xml=${encodeURIComponent(xmlReq)}`,
+      body: xmlReq,
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout));
 
@@ -87,7 +84,6 @@ const handler = async (req: Request, options: { force?: boolean } = {}): Promise
         .update({
           status: "pending",
           last_error: "Código 7 da TrucksControl: aguardando 60 minutos",
-          next_retry_at: retryAt,
         })
         .eq("report_day", expectedDay);
       return json({ success: false, code: 7, waitMinutes });
@@ -174,11 +170,9 @@ Deno.serve(async (req: Request) => {
     if (failure) return failure;
     if (!reportDue(new Date())) return json({ accepted: false, reason: "antes das 05:00 BRT" }, 200);
 
-    // Execução síncrona igual ao clique manual (com force: false)
     return await handler(req, { force: false });
   }
 
-  // Chamada manual do botão no painel continua síncrona e com force: true
   const failure = await authenticateSync(req);
   if (failure) return json({ error: "Acesso não autorizado" }, failure.status);
   return await handler(req, { force: true });
