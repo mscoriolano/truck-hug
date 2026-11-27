@@ -185,6 +185,9 @@ Deno.serve(async (req: Request) => {
     if (failure) return failure;
     if (!reportDue(new Date())) return json({ accepted: false, reason: "antes das 05:00 BRT" }, 200);
 
+    // Aguarda 15s para não colidir no segundo :00 com outros crons da TrucksControl
+    await new Promise((r) => setTimeout(r, 15_000));
+
     // Execução síncrona igual ao botão manual, mas com force = false para não reabrir dia concluído
     return await handler(req, false);
   }
